@@ -11,6 +11,7 @@
 //    tabla usuarios_sistema con rol superadmin
 // ============================================================
 
+import "./theme.css";
 import { useState, useEffect, useCallback, createContext, useContext, useRef } from "react";
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,

@@ -1,0 +1,141 @@
+/* ============================================================
+   SISTEMA IGLESIA — Variables de color y tema
+   Agregar este import en src/index.js o src/App.jsx:
+   import './theme.css';
+   ============================================================ */
+
+:root {
+  /* Superficies */
+  --surface-0: #fafaf8;
+  --surface-1: #f1efe8;
+  --surface-2: #ffffff;
+
+  /* Texto */
+  --text-primary: #1a1a18;
+  --text-secondary: #5f5e5a;
+  --text-muted: #888780;
+
+  /* Bordes */
+  --border: rgba(0,0,0,0.08);
+  --border-strong: rgba(0,0,0,0.16);
+  --border-stronger: rgba(0,0,0,0.32);
+
+  /* Accent (azul) */
+  --bg-accent: #e6f1fb;
+  --border-accent: #85b7eb;
+  --text-accent: #0c447c;
+  --fill-accent: #378add;
+  --on-accent: #ffffff;
+
+  /* Pro (morado) */
+  --bg-pro: #eeedfe;
+  --border-pro: #afa9ec;
+  --text-pro: #3c3489;
+  --fill-pro: #7f77dd;
+  --on-pro: #ffffff;
+
+  /* Success (verde) */
+  --bg-success: #eaf3de;
+  --border-success: #97c459;
+  --text-success: #27500a;
+  --fill-success: #639922;
+  --on-success: #1a1a18;
+
+  /* Warning (ámbar) */
+  --bg-warning: #faeeda;
+  --border-warning: #ef9f27;
+  --text-warning: #633806;
+  --fill-warning: #ba7517;
+  --on-warning: #1a1a18;
+
+  /* Danger (rojo/coral) */
+  --bg-danger: #faece7;
+  --border-danger: #f0997b;
+  --text-danger: #712b13;
+  --fill-danger: #d85a30;
+  --on-danger: #ffffff;
+
+  /* Tipografía */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+  --font-mono: "SF Mono", Monaco, "Cascadia Code", monospace;
+
+  /* Layout */
+  --radius: 8px;
+}
+
+/* Modo oscuro (opcional, se activa automáticamente según el sistema) */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface-0: #1c1c1a;
+    --surface-1: #242422;
+    --surface-2: #2c2c2a;
+
+    --text-primary: #f1efe8;
+    --text-secondary: #b4b2a9;
+    --text-muted: #888780;
+
+    --border: rgba(255,255,255,0.08);
+    --border-strong: rgba(255,255,255,0.16);
+    --border-stronger: rgba(255,255,255,0.32);
+
+    --bg-accent: #0c447c;
+    --border-accent: #185fa5;
+    --text-accent: #b5d4f4;
+
+    --bg-pro: #3c3489;
+    --border-pro: #534ab7;
+    --text-pro: #cecbf6;
+
+    --bg-success: #27500a;
+    --border-success: #3b6d11;
+    --text-success: #c0dd97;
+
+    --bg-warning: #633806;
+    --border-warning: #854f0b;
+    --text-warning: #fac775;
+
+    --bg-danger: #712b13;
+    --border-danger: #993c1d;
+    --text-danger: #f5c4b3;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--surface-0);
+  color: var(--text-primary);
+}
+
+input, select, textarea, button {
+  font-family: var(--font-sans);
+  font-size: 14px;
+}
+
+input[type="text"], input[type="email"], input[type="password"], input[type="date"], input[type="time"], input[type="tel"], select, textarea {
+  height: 36px;
+  padding: 0 10px;
+  border-radius: var(--radius);
+  border: 0.5px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-primary);
+  outline: none;
+}
+
+textarea {
+  height: auto;
+  padding: 8px 10px;
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--border-accent);
+  box-shadow: 0 0 0 1px var(--border-accent);
+}
+
+button {
+  font-family: var(--font-sans);
+}
