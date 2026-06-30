@@ -11,7 +11,6 @@
 //    tabla usuarios_sistema con rol superadmin
 // ============================================================
 
-import "./theme.css";
 import { useState, useEffect, useCallback, createContext, useContext, useRef } from "react";
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -155,6 +154,16 @@ const canDo = (usuario, perm) => {
   return perms.includes("todo") || perms.includes(perm);
 };
 
+function useIsMobile(breakpoint = 768) {
+  const [isMobile, setIsMobile] = useState(typeof window !== "undefined" ? window.innerWidth < breakpoint : false);
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < breakpoint);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [breakpoint]);
+  return isMobile;
+}
+
 // ─────────────────────────────────────────────────────────────
 // COMPONENTES BASE
 // ─────────────────────────────────────────────────────────────
@@ -170,14 +179,15 @@ function Toast({ msg, type, onClose }) {
 }
 
 function Modal({ title, onClose, children, wide }) {
+  const isMobile = useIsMobile();
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflowY: "auto" }}>
-      <div style={{ background: "var(--surface-2)", borderRadius: 14, border: "0.5px solid var(--border)", width: "100%", maxWidth: wide ? 900 : 580 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "0.5px solid var(--border)", position: "sticky", top: 0, background: "var(--surface-2)", borderRadius: "14px 14px 0 0", zIndex: 1 }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: isMobile ? "stretch" : "flex-start", justifyContent: "center", padding: isMobile ? 0 : "40px 16px", overflowY: "auto" }}>
+      <div style={{ background: "var(--surface-2)", borderRadius: isMobile ? 0 : 14, border: isMobile ? "none" : "0.5px solid var(--border)", width: "100%", maxWidth: isMobile ? "100%" : (wide ? 900 : 580), minHeight: isMobile ? "100vh" : "auto" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "0.5px solid var(--border)", position: "sticky", top: 0, background: "var(--surface-2)", borderRadius: isMobile ? 0 : "14px 14px 0 0", zIndex: 1 }}>
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 500 }}>{title}</h3>
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: "var(--text-muted)", lineHeight: 1, padding: "0 4px" }}>×</button>
         </div>
-        <div style={{ padding: 20 }}>{children}</div>
+        <div style={{ padding: isMobile ? 16 : 20 }}>{children}</div>
       </div>
     </div>
   );
@@ -312,13 +322,19 @@ const NAV_ITEMS = [
   { id: "config", icon: "settings", label: "Configuración", perm: "config", role: "accent" },
 ];
 
-function Sidebar({ active, onChange, usuario, onLogout }) {
+function Sidebar({ active, onChange, usuario, onLogout, isMobile, isOpen, onCloseMenu }) {
   const rol = usuario?.roles_sistema?.nombre;
-  return (
-    <div style={{ width: 220, background: "var(--surface-1)", borderRight: "0.5px solid var(--border)", display: "flex", flexDirection: "column", minHeight: "100vh", flexShrink: 0 }}>
-      <div style={{ padding: "24px 20px 16px", borderBottom: "0.5px solid var(--border)" }}>
+
+  const handleNavClick = (id) => {
+    onChange(id);
+    if (isMobile) onCloseMenu();
+  };
+
+  const sidebarContent = (
+    <div style={{ width: isMobile ? 260 : 220, background: "var(--surface-1)", borderRight: "0.5px solid var(--border)", display: "flex", flexDirection: "column", height: "100vh", flexShrink: 0, position: isMobile ? "fixed" : "sticky", top: 0, left: 0, zIndex: 1100, transform: isMobile ? (isOpen ? "translateX(0)" : "translateX(-100%)") : "none", transition: "transform 0.25s ease" }}>
+      <div style={{ padding: "20px 18px 16px", borderBottom: "0.5px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 38, height: 38, background: "var(--bg-accent)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ width: 38, height: 38, background: "var(--bg-accent)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <i className="ti ti-building-church" style={{ fontSize: 20, color: "var(--text-accent)" }} />
           </div>
           <div>
@@ -326,14 +342,17 @@ function Sidebar({ active, onChange, usuario, onLogout }) {
             <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{usuario?.templos?.nombre || "Sistema"}</div>
           </div>
         </div>
+        {isMobile && (
+          <button onClick={onCloseMenu} aria-label="Cerrar menú" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: "var(--text-muted)", padding: 4, lineHeight: 1 }}>×</button>
+        )}
       </div>
 
-      <nav style={{ flex: 1, padding: "12px 10px" }}>
+      <nav style={{ flex: 1, padding: "12px 10px", overflowY: "auto" }}>
         {NAV_ITEMS.map(item => {
           if (item.perm && !canDo(usuario, item.perm)) return null;
           const isActive = active === item.id;
           return (
-            <button key={item.id} onClick={() => onChange(item.id)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "9px 12px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 14, fontWeight: isActive ? 500 : 400, background: isActive ? `var(--bg-${item.role})` : "transparent", color: isActive ? `var(--text-${item.role})` : "var(--text-secondary)", marginBottom: 2, textAlign: "left", fontFamily: "var(--font-sans)" }}>
+            <button key={item.id} onClick={() => handleNavClick(item.id)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "11px 12px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 14, fontWeight: isActive ? 500 : 400, background: isActive ? `var(--bg-${item.role})` : "transparent", color: isActive ? `var(--text-${item.role})` : "var(--text-secondary)", marginBottom: 2, textAlign: "left", fontFamily: "var(--font-sans)" }}>
               <i className={`ti ti-${item.icon}`} style={{ fontSize: 17, flexShrink: 0, color: isActive ? `var(--text-${item.role})` : "var(--text-muted)" }} aria-hidden />
               {item.label}
             </button>
@@ -346,12 +365,23 @@ function Sidebar({ active, onChange, usuario, onLogout }) {
           <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>{usuario?.nombre}</div>
           <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{rol}</div>
         </div>
-        <button onClick={onLogout} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 12px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, background: "transparent", color: "var(--text-muted)", fontFamily: "var(--font-sans)" }}>
+        <button onClick={onLogout} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 12px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, background: "transparent", color: "var(--text-muted)", fontFamily: "var(--font-sans)" }}>
           <i className="ti ti-logout" style={{ fontSize: 15 }} aria-hidden />
           Cerrar sesión
         </button>
       </div>
     </div>
+  );
+
+  if (!isMobile) return sidebarContent;
+
+  return (
+    <>
+      {isOpen && (
+        <div onClick={onCloseMenu} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1050 }} />
+      )}
+      {sidebarContent}
+    </>
   );
 }
 
@@ -525,6 +555,7 @@ function ModuloMiembros() {
   };
 
   const canEdit = canDo(usuario, "miembros");
+  const isMobile = useIsMobile();
 
   return (
     <div>
@@ -533,17 +564,17 @@ function ModuloMiembros() {
         icon="users"
         role="pro"
         action={
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <Btn icon="file-spreadsheet" small onClick={exportarGoogleSheets} loading={exportando} variant="success">
-              Exportar a Sheets
+              {isMobile ? "Sheets" : "Exportar a Sheets"}
             </Btn>
-            {canEdit && <Btn icon="user-plus" variant="primary" small onClick={() => setModal({ mode: "new", data: null })}>Nuevo miembro</Btn>}
+            {canEdit && <Btn icon="user-plus" variant="primary" small onClick={() => setModal({ mode: "new", data: null })}>{isMobile ? "Nuevo" : "Nuevo miembro"}</Btn>}
           </div>
         }
       />
 
       {/* Filtros */}
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr 1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
         <input placeholder="Buscar por nombre, cédula, teléfono..." value={search} onChange={e => setSearch(e.target.value)} style={{ boxSizing: "border-box" }} />
         <select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)}>
           <option value="">Todos los estados</option>
@@ -572,6 +603,42 @@ function ModuloMiembros() {
         <div style={{ textAlign: "center", padding: "48px 0", color: "var(--text-muted)" }}>
           <i className="ti ti-users-off" style={{ fontSize: 36, display: "block", marginBottom: 10 }} />
           No se encontraron miembros
+        </div>
+      ) : isMobile ? (
+        /* Vista de tarjetas para móvil */
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {filtrados.map(m => {
+            const cumple = isBirthdayToday(m.fecha_nacimiento);
+            const cargosActivos = (m.miembro_cargos || []).filter(mc => mc.activo).map(mc => mc.cargos?.nombre).filter(Boolean);
+            return (
+              <div key={m.id} style={{ background: cumple ? "var(--bg-warning)" : "var(--surface-2)", border: `0.5px solid ${cumple ? "var(--border-warning)" : "var(--border)"}`, borderRadius: 12, padding: 14 }}>
+                <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                  <Avatar foto={m.foto_url} nombre={`${m.nombres} ${m.apellidos}`} size={42} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 15, fontWeight: 500, color: "var(--text-primary)" }}>{m.apellidos}, {m.nombres}</div>
+                    <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 6 }}>{m.celular || m.telefono || m.email || "—"} {m.templos?.nombre ? `· ${m.templos.nombre}` : ""}</div>
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
+                      <Badge label={m.estado} />
+                      {cargosActivos.map(c => <Badge key={c} label={c} role="accent" />)}
+                    </div>
+                    {m.fecha_nacimiento && (
+                      <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                        <i className="ti ti-cake" style={{ fontSize: 13, marginRight: 4 }} aria-hidden />
+                        {fmtDate(m.fecha_nacimiento)} {cumple && "🎂"}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 12, paddingTop: 10, borderTop: "0.5px solid var(--border)" }}>
+                  {cumple && m.whatsapp && (
+                    <Btn small variant="success" icon="brand-whatsapp" onClick={() => enviarWA(m)} style={{ flex: 1, justifyContent: "center" }}>Felicitar</Btn>
+                  )}
+                  <Btn small icon="eye" onClick={() => setModal({ mode: "view", data: m })} style={{ flex: 1, justifyContent: "center" }}>Ver</Btn>
+                  {canEdit && <Btn small icon="edit" onClick={() => setModal({ mode: "edit", data: m })} style={{ flex: 1, justifyContent: "center" }}>Editar</Btn>}
+                </div>
+              </div>
+            );
+          })}
         </div>
       ) : (
         <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
@@ -732,10 +799,11 @@ function ModalMiembro({ mode, data, templos, cargos, grupos, onClose, onSaved })
   };
 
   const isView = mode === "view";
+  const isMobile = useIsMobile();
 
   return (
     <Modal title={isView ? "Ver miembro" : mode === "new" ? "Nuevo miembro" : "Editar miembro"} onClose={onClose} wide>
-      <div style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: 24, alignItems: "start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "160px 1fr", gap: isMobile ? 16 : 24, alignItems: "start" }}>
         {/* Foto */}
         <div style={{ textAlign: "center" }}>
           <div style={{ width: 120, height: 120, borderRadius: "50%", overflow: "hidden", border: "2px solid var(--border)", margin: "0 auto 12px", background: "var(--surface-1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -758,7 +826,7 @@ function ModalMiembro({ mode, data, templos, cargos, grupos, onClose, onSaved })
 
         {/* Formulario */}
         <div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
             <Inp label="Nombres *" value={form.nombres} onChange={e => set("nombres", e.target.value)} disabled={isView} />
             <Inp label="Apellidos *" value={form.apellidos} onChange={e => set("apellidos", e.target.value)} disabled={isView} />
             <Inp label="Cédula / DNI" value={form.cedula || ""} onChange={e => set("cedula", e.target.value)} disabled={isView} />
@@ -969,14 +1037,16 @@ function ModuloAsistencia() {
     { val: "tarde", label: "Tarde", color: "accent" },
   ];
 
+  const isMobile = useIsMobile();
+
   return (
     <div>
       <SectionHeader title="Tomar asistencia" icon="clipboard-check" role="success" />
 
       {!sesionAbierta ? (
-        <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 24, maxWidth: 600 }}>
+        <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: isMobile ? 16 : 24, maxWidth: 600 }}>
           <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 16, color: "var(--text-primary)" }}>Configurar sesión de asistencia</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
             <Sel label="Templo *" value={filtroTemplo} onChange={e => setFiltroTemplo(e.target.value)}>
               <option value="">— Seleccionar —</option>
               {templos.map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}
@@ -986,7 +1056,7 @@ function ModuloAsistencia() {
               <option value="">— Seleccionar —</option>
               {tiposReunion.map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}
             </Sel>
-            <div />
+            {!isMobile && <div />}
             <Sel label="Filtrar por cargo (opcional)" value={filtroCargo} onChange={e => setFiltroCargo(e.target.value)}>
               <option value="">Todos los cargos</option>
               {cargos.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
@@ -1008,8 +1078,8 @@ function ModuloAsistencia() {
       ) : (
         <div>
           {/* Header sesión activa */}
-          <div style={{ background: "var(--bg-accent)", border: "0.5px solid var(--border-accent)", borderRadius: 10, padding: "10px 16px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
-            <div style={{ fontSize: 14, color: "var(--text-accent)" }}>
+          <div style={{ background: "var(--bg-accent)", border: "0.5px solid var(--border-accent)", borderRadius: 10, padding: "10px 16px", marginBottom: 16, display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+            <div style={{ fontSize: 13, color: "var(--text-accent)" }}>
               <i className="ti ti-calendar-event" style={{ marginRight: 6 }} />
               <strong>{tiposReunion.find(t => t.id === filtroTipoReunion)?.nombre}</strong>
               {" · "}{templos.find(t => t.id === filtroTemplo)?.nombre}
@@ -1017,13 +1087,13 @@ function ModuloAsistencia() {
               {" · "}<strong>{miembros.length} miembro(s)</strong>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              <Btn small icon="device-floppy" variant="primary" loading={guardando} onClick={guardarAsistencia}>Guardar</Btn>
-              <Btn small icon="x" onClick={cerrarSesion}>Cerrar sesión</Btn>
+              <Btn small icon="device-floppy" variant="primary" loading={guardando} onClick={guardarAsistencia} style={isMobile ? { flex: 1, justifyContent: "center" } : {}}>Guardar</Btn>
+              <Btn small icon="x" onClick={cerrarSesion} style={isMobile ? { flex: 1, justifyContent: "center" } : {}}>Cerrar</Btn>
             </div>
           </div>
 
           {/* Contadores */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(4, 1fr)", gap: 10, marginBottom: 16 }}>
             {ESTADOS.map(e => (
               <div key={e.val} style={{ background: `var(--bg-${e.color})`, border: `0.5px solid var(--border-${e.color})`, borderRadius: 10, padding: "10px 14px", textAlign: "center" }}>
                 <div style={{ fontSize: 22, fontWeight: 500, color: `var(--text-${e.color})` }}>{conteo[e.val]}</div>
@@ -1037,15 +1107,17 @@ function ModuloAsistencia() {
             {miembros.map((m, idx) => {
               const estado = asistenciaLocal[m.id] || "ausente";
               return (
-                <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "10px 16px", borderBottom: idx < miembros.length - 1 ? "0.5px solid var(--border)" : "none", background: estado === "presente" ? "rgba(16,185,129,0.05)" : estado === "ausente" ? "rgba(239,68,68,0.04)" : "transparent" }}>
-                  <Avatar foto={m.foto_url} nombre={`${m.nombres} ${m.apellidos}`} size={34} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>{m.apellidos}, {m.nombres}</div>
-                    <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{m.estado}</div>
+                <div key={m.id} style={{ display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "center", gap: isMobile ? 10 : 14, padding: "12px 16px", borderBottom: idx < miembros.length - 1 ? "0.5px solid var(--border)" : "none", background: estado === "presente" ? "rgba(16,185,129,0.05)" : estado === "ausente" ? "rgba(239,68,68,0.04)" : "transparent" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <Avatar foto={m.foto_url} nombre={`${m.nombres} ${m.apellidos}`} size={34} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>{m.apellidos}, {m.nombres}</div>
+                      <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{m.estado}</div>
+                    </div>
                   </div>
-                  <div style={{ display: "flex", gap: 6 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(4, 1fr)" : "none", gridAutoFlow: isMobile ? "row" : "column", gap: 6 }}>
                     {ESTADOS.map(e => (
-                      <button key={e.val} onClick={() => cambiarEstado(m.id, e.val)} style={{ cursor: "pointer", padding: "4px 10px", borderRadius: 20, border: `0.5px solid ${estado === e.val ? `var(--border-${e.color})` : "var(--border)"}`, background: estado === e.val ? `var(--bg-${e.color})` : "transparent", color: estado === e.val ? `var(--text-${e.color})` : "var(--text-muted)", fontSize: 12, fontFamily: "var(--font-sans)", fontWeight: estado === e.val ? 500 : 400, transition: "all 0.15s" }}>
+                      <button key={e.val} onClick={() => cambiarEstado(m.id, e.val)} style={{ cursor: "pointer", padding: isMobile ? "6px 4px" : "4px 10px", borderRadius: isMobile ? 8 : 20, border: `0.5px solid ${estado === e.val ? `var(--border-${e.color})` : "var(--border)"}`, background: estado === e.val ? `var(--bg-${e.color})` : "transparent", color: estado === e.val ? `var(--text-${e.color})` : "var(--text-muted)", fontSize: isMobile ? 11 : 12, fontFamily: "var(--font-sans)", fontWeight: estado === e.val ? 500 : 400, transition: "all 0.15s", textAlign: "center" }}>
                         {e.label}
                       </button>
                     ))}
@@ -1055,7 +1127,7 @@ function ModuloAsistencia() {
             })}
           </div>
           <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end" }}>
-            <Btn variant="primary" icon="device-floppy" loading={guardando} onClick={guardarAsistencia}>
+            <Btn variant="primary" icon="device-floppy" loading={guardando} onClick={guardarAsistencia} style={isMobile ? { width: "100%", justifyContent: "center" } : {}}>
               {guardando ? "Guardando..." : "Guardar asistencia"}
             </Btn>
           </div>
@@ -1148,13 +1220,14 @@ function ModuloReportes() {
   };
 
   const setF = (k, v) => setFiltros(f => ({ ...f, [k]: v }));
+  const isMobile = useIsMobile();
 
   return (
     <div>
       <SectionHeader title="Reportes y gráficos" icon="chart-bar" role="danger" />
 
-      <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 20, marginBottom: 24 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr auto", gap: 12, alignItems: "end" }}>
+      <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: isMobile ? 16 : 20, marginBottom: 24 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr auto", gap: 12, alignItems: "end" }}>
           <Inp label="Desde" type="date" value={filtros.desde} onChange={e => setF("desde", e.target.value)} />
           <Inp label="Hasta" type="date" value={filtros.hasta} onChange={e => setF("hasta", e.target.value)} />
           <Sel label="Templo" value={filtros.templo_id} onChange={e => setF("templo_id", e.target.value)}>
@@ -1165,7 +1238,7 @@ function ModuloReportes() {
             <option value="">Todos los tipos</option>
             {tiposReunion.map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}
           </Sel>
-          <Btn variant="primary" icon="search" loading={loading} onClick={generarReporte} style={{ marginBottom: 14 }}>
+          <Btn variant="primary" icon="search" loading={loading} onClick={generarReporte} style={{ marginBottom: 14, gridColumn: isMobile ? "1 / -1" : "auto", justifyContent: "center" }}>
             Generar
           </Btn>
         </div>
@@ -1208,7 +1281,7 @@ function ModuloReportes() {
             </ResponsiveContainer>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 20 }}>
             {/* Pie chart estados */}
             <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 20 }}>
               <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 16 }}>Distribución de estados</div>
@@ -1689,7 +1762,8 @@ function ModuloHistorial() {
                 No hay reuniones en el período seleccionado
               </div>
             ) : (
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 560 }}>
                 <thead>
                   <tr style={{ background: "var(--surface-1)" }}>
                     {["Fecha", "Tipo de reunión", "Templo", "Estado", "Observación"].map(h => (
@@ -1716,6 +1790,7 @@ function ModuloHistorial() {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
         </>
@@ -1747,6 +1822,8 @@ export default function App() {
   const [page, setPage] = useState("dashboard");
   const [toastData, setToastData] = useState(null);
   const [checkingSession, setCheckingSession] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const isMobile = useIsMobile();
 
   const toast = useCallback((msg, type = "ok") => setToastData({ msg, type, key: Date.now() }), []);
 
@@ -1763,6 +1840,7 @@ export default function App() {
   }, []);
 
   const handleLogout = async () => { await sb.signOut(); setUsuario(null); setPage("dashboard"); };
+  const handlePageChange = (p) => { setPage(p); setMenuOpen(false); };
 
   if (checkingSession) return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -1779,14 +1857,32 @@ export default function App() {
 
   const PAGES = { dashboard: Dashboard, miembros: ModuloMiembros, asistencia: ModuloAsistencia, historial: ModuloHistorial, reportes: ModuloReportes, config: ModuloConfig };
   const PageComp = PAGES[page] || Dashboard;
+  const currentNav = NAV_ITEMS.find(n => n.id === page);
 
   return (
     <AppCtx.Provider value={{ usuario, toast }}>
       <div style={{ display: "flex", minHeight: "100vh", background: "var(--surface-0)" }}>
-        <Sidebar active={page} onChange={setPage} usuario={usuario} onLogout={handleLogout} />
-        <main style={{ flex: 1, padding: 28, overflowY: "auto", minWidth: 0 }}>
-          <PageComp />
-        </main>
+        <Sidebar active={page} onChange={handlePageChange} usuario={usuario} onLogout={handleLogout} isMobile={isMobile} isOpen={menuOpen} onCloseMenu={() => setMenuOpen(false)} />
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+          {isMobile && (
+            <div style={{ position: "sticky", top: 0, zIndex: 900, background: "var(--surface-2)", borderBottom: "0.5px solid var(--border)", padding: "12px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+              <button onClick={() => setMenuOpen(true)} aria-label="Abrir menú" style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: "var(--text-primary)", display: "flex" }}>
+                <i className="ti ti-menu-2" style={{ fontSize: 22 }} aria-hidden />
+              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {currentNav && (
+                  <span style={{ width: 26, height: 26, borderRadius: 7, background: `var(--bg-${currentNav.role})`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <i className={`ti ti-${currentNav.icon}`} style={{ fontSize: 14, color: `var(--text-${currentNav.role})` }} aria-hidden />
+                  </span>
+                )}
+                <span style={{ fontSize: 15, fontWeight: 500 }}>{currentNav?.label || "Sistema"}</span>
+              </div>
+            </div>
+          )}
+          <main style={{ flex: 1, padding: isMobile ? 16 : 28, overflowY: "auto", minWidth: 0, overflowX: "hidden" }}>
+            <PageComp />
+          </main>
+        </div>
       </div>
       {toastData && <Toast key={toastData.key} msg={toastData.msg} type={toastData.type} onClose={() => setToastData(null)} />}
     </AppCtx.Provider>
