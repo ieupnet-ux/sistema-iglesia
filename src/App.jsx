@@ -1,3 +1,4 @@
+import "./theme.css";
 // ============================================================
 // SISTEMA DE GESTIÓN IGLESIA
 // Stack: React + Supabase (PostgreSQL + Auth + Storage)
@@ -1888,3 +1889,4 @@ export default function App() {
     </AppCtx.Provider>
   );
 }
+
