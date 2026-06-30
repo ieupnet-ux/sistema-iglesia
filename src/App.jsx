@@ -1,4 +1,3 @@
-/* eslint-disable */
 // ============================================================
 // SISTEMA DE GESTIÓN IGLESIA
 // Stack: React + Supabase (PostgreSQL + Auth + Storage)
@@ -18,12 +17,14 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
 
+
 // ── SUPABASE CONFIG ──────────────────────────────────────────
 const SUPABASE_URL = "https://yaywdqnatifscsyeobsg.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlheXdkcW5hdGlmc2NzeWVvYnNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1Nzc2MzEsImV4cCI6MjA5ODE1MzYzMX0.pmI-kZLnaQvhKIlc7mopvRgLsEwcFFqUMiW_TKxwAUY";
 const WA_API_URL = "https://api.callmebot.com/whatsapp.php"; // CallMeBot (gratis)
 // Para CallMeBot cada miembro debe enviar "I allow callmebot to send me messages"
 // al número +34 644 59 37 11 en WhatsApp
+
 
 // ── CLIENTE SUPABASE (sin dependencias) ──────────────────────
 const sb = {
@@ -1281,7 +1282,12 @@ function ModuloConfig() {
   const agregar = async () => {
     if (!newName.trim()) { toast("El nombre es requerido", "warn"); return; }
     try {
-      const payload = { nombre: newName.trim(), descripcion: newDesc.trim() || null, activo: true };
+      const payload = { nombre: newName.trim(), activo: true };
+      if (tab === "templos") {
+        payload.direccion = newDesc.trim() || null;
+      } else {
+        payload.descripcion = newDesc.trim() || null;
+      }
       if (tab === "tipos_reunion" && newHora) payload.hora_defecto = newHora;
       await sb.insert(tab, payload);
       toast("Agregado ✓", "ok");
@@ -1322,7 +1328,7 @@ function ModuloConfig() {
               <Inp label="Nombre *" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nombre..." />
             </div>
             <div style={{ flex: "2 1 200px" }}>
-              <Inp label="Descripción" value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Descripción (opcional)" />
+              <Inp label={tab === "templos" ? "Dirección" : "Descripción"} value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder={tab === "templos" ? "Dirección (opcional)" : "Descripción (opcional)"} />
             </div>
             {tab === "tipos_reunion" && (
               <div style={{ flex: "1 1 120px" }}>
@@ -1348,6 +1354,7 @@ function ModuloConfig() {
                     <td style={{ padding: "10px 16px" }}>
                       <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>{item.nombre}</div>
                       {item.descripcion && <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{item.descripcion}</div>}
+                      {item.direccion && <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{item.direccion}{item.ciudad ? ` — ${item.ciudad}` : ""}</div>}
                       {item.hora_defecto && <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Hora: {item.hora_defecto}</div>}
                       {tab === "usuarios_sistema" && (
                         <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
