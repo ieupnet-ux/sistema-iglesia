@@ -19,8 +19,8 @@ import {
 } from "recharts";
 
 // ── SUPABASE CONFIG ──────────────────────────────────────────
-const SUPABASE_URL = "https://TU_PROYECTO.supabase.co";
-const SUPABASE_ANON_KEY = "TU_ANON_KEY";
+const SUPABASE_URL = "https://yaywdqnatifscsyeobsg.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlheXdkcW5hdGlmc2NzeWVvYnNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1Nzc2MzEsImV4cCI6MjA5ODE1MzYzMX0.pmI-kZLnaQvhKIlc7mopvRgLsEwcFFqUMiW_TKxwAUY";
 const WA_API_URL = "https://api.callmebot.com/whatsapp.php"; // CallMeBot (gratis)
 // Para CallMeBot cada miembro debe enviar "I allow callmebot to send me messages"
 // al número +34 644 59 37 11 en WhatsApp
