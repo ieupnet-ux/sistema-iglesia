@@ -574,8 +574,8 @@ function ModuloMiembros() {
           <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
             <thead>
               <tr style={{ background: "var(--surface-1)" }}>
-                {["", "Nombre", "Templo", "Cargos", "Estado", "Cumpleaños", ""].map((h, i) => (
-                  <th key={i} style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--text-secondary)", textAlign: "left", borderBottom: "0.5px solid var(--border)", width: [48, null, 120, null, 90, 100, 100][i] }}>{h}</th>
+                {["", "Nombre", "Templo", "Cargos", "Estado", "Cumpleaños", "Acciones"].map((h, i) => (
+                  <th key={i} style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--text-secondary)", textAlign: i === 6 ? "right" : "left", borderBottom: "0.5px solid var(--border)", width: [48, 220, 130, 200, 90, 110, 110][i] }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -608,8 +608,8 @@ function ModuloMiembros() {
                         <span>{fmtDate(m.fecha_nacimiento)} {cumple && "🎂"}</span>
                       ) : "—"}
                     </td>
-                    <td style={{ padding: "8px 12px" }}>
-                      <div style={{ display: "flex", gap: 6 }}>
+                    <td style={{ padding: "8px 12px", textAlign: "right" }}>
+                      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
                         {cumple && m.whatsapp && (
                           <Btn small variant="success" icon="brand-whatsapp" onClick={() => enviarWA(m)} title="Enviar felicitación" />
                         )}
