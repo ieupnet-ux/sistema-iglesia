@@ -1,6 +1,4 @@
 import "./theme.css";
-
-
 // ============================================================
 // SISTEMA DE GESTIÓN IGLESIA
 // Stack: React + Supabase (PostgreSQL + Auth + Storage)
@@ -20,14 +18,13 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
 
-
 // ── SUPABASE CONFIG ──────────────────────────────────────────
 const SUPABASE_URL = "https://yaywdqnatifscsyeobsg.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlheXdkcW5hdGlmc2NzeWVvYnNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1Nzc2MzEsImV4cCI6MjA5ODE1MzYzMX0.pmI-kZLnaQvhKIlc7mopvRgLsEwcFFqUMiW_TKxwAUY";
-const WA_API_URL = "https://api.callmebot.com/whatsapp.php"; // CallMeBot (gratis)
-// Para CallMeBot cada miembro debe enviar "I allow callmebot to send me messages"
-// al número +34 644 59 37 11 en WhatsApp
-
+// ── GREEN API (WhatsApp) ──────────────────────────────────────
+const GREENAPI_ID_INSTANCE = "710701669501";
+const GREENAPI_API_TOKEN = "c315d8ed030f4b359ab49c293c2b8614ac27b7d8158a44aaac";
+const GREENAPI_URL = `https://7107.api.greenapi.com/waInstance${GREENAPI_ID_INSTANCE}/sendMessage/${GREENAPI_API_TOKEN}`;
 
 // ── CLIENTE SUPABASE (sin dependencias) ──────────────────────
 const sb = {
@@ -509,16 +506,39 @@ function ModuloMiembros() {
     return matchSearch && matchEstado && matchTemplo && matchCargo && matchGrupo;
   });
 
+  // Versículos de bendición para cumpleaños (rotan según el día del año)
+  const MENSAJES_CUMPLEANOS = [
+    '"Bendito seas tú, y bendita tu salida y bendita tu entrada." (Deuteronomio 28:6)\n\nQue en este nuevo año de vida el Señor te colme de salud, sabiduría y abundantes bendiciones.',
+    '"El Señor te bendiga, y te guarde; el Señor haga resplandecer su rostro sobre ti, y tenga de ti misericordia." (Números 6:24-25)\n\nQue cada día de este nuevo año esté lleno del favor y la gracia de Dios sobre tu vida.',
+    '"Porque yo sé los pensamientos que tengo acerca de vosotros, dice Jehová, pensamientos de paz, y no de mal." (Jeremías 29:11)\n\nQue Dios siga cumpliendo sus propósitos de bien en tu vida en este nuevo año.',
+    '"Fiel es Dios, por el cual fuisteis llamados a la comunión con su Hijo Jesucristo nuestro Señor." (1 Corintios 1:9)\n\nQue tu vida siga siendo testimonio de la fidelidad de Dios en cada nuevo año.',
+    '"Te alabaré; porque formidables, maravillosas son tus obras." (Salmos 139:14)\n\nHoy celebramos la vida maravillosa que Dios diseñó en ti.',
+    '"Bueno es Jehová para con todos, y su misericordia sobre todas sus obras." (Salmos 145:9)\n\nQue su misericordia y bondad te acompañen siempre, hoy y en cada día de tu nuevo año.',
+    '"Hasta vuestra vejez yo mismo, y hasta las canas os soportaré; yo hice, yo llevaré, yo soportaré y guardaré." (Isaías 46:4)\n\nDios mismo te sostiene y guarda en cada etapa de tu vida.',
+  ];
+
+  const obtenerMensajeDelDia = () => {
+    const inicioAno = new Date(new Date().getFullYear(), 0, 0);
+    const diaDelAno = Math.floor((Date.now() - inicioAno.getTime()) / 86400000);
+    return MENSAJES_CUMPLEANOS[diaDelAno % MENSAJES_CUMPLEANOS.length];
+  };
+
   // Enviar WhatsApp cumpleaños
   const enviarWA = async (m) => {
     if (!m.whatsapp) { toast("El miembro no tiene WhatsApp registrado", "warn"); return; }
     const edad = calcAge(m.fecha_nacimiento);
-    const msg = `¡Feliz cumpleaños ${m.nombres}! ${edad ? `Que Dios te bendiga en este día tan especial. ¡${edad} años!` : "Que Dios te bendiga en tu día especial."} 🎂🙏`;
-    const url = `${WA_API_URL}?phone=${m.whatsapp.replace(/\D/g,"")}&text=${encodeURIComponent(msg)}&apikey=TU_CALLMEBOT_APIKEY`;
+    const bendicion = obtenerMensajeDelDia();
+    const msg = `🎉 ¡Feliz cumpleaños, ${m.nombres}! 🎂${edad ? ` Hoy cumples ${edad} años.` : ""}\n\n${bendicion}\n\nDe parte de toda tu familia en la iglesia, ¡que Dios te bendiga grandemente! 🙏✨`;
     try {
-      await fetch(url);
-      await sb.insert("log_whatsapp", { miembro_id: m.id, tipo: "cumpleanos", mensaje: msg, estado: "enviado" });
-      toast(`Felicitación enviada a ${m.nombres} por WhatsApp ✓`, "ok");
+      const resp = await fetch(GREENAPI_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chatId: `${m.whatsapp.replace(/\D/g,"")}@c.us`, message: msg }),
+      });
+      const ok = resp.ok;
+      await sb.insert("log_whatsapp", { miembro_id: m.id, tipo: "cumpleanos", mensaje: msg, estado: ok ? "enviado" : "error" });
+      if (ok) toast(`Felicitación enviada a ${m.nombres} por WhatsApp ✓`, "ok");
+      else toast("Error al enviar WhatsApp", "error");
     } catch { toast("Error al enviar WhatsApp", "error"); }
   };
 
@@ -1897,4 +1917,3 @@ export default function App() {
     </AppCtx.Provider>
   );
 }
-
