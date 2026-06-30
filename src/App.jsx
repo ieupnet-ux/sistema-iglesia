@@ -364,7 +364,7 @@ function Dashboard() {
     (async () => {
       try {
         const [miembros, reuniones, asistencia] = await Promise.all([
-          sb.query("miembros", "?select=id,estado,fecha_nacimiento&activo=neq.false"),
+          sb.query("miembros", "?select=id,estado,fecha_nacimiento&estado=neq.retirado"),
           sb.query("reuniones", `?fecha=gte.${new Date(Date.now() - 30*86400000).toISOString().split("T")[0]}&select=id,fecha`),
           sb.query("asistencia", `?created_at=gte.${new Date(Date.now() - 30*86400000).toISOString()}&select=estado`),
         ]);
