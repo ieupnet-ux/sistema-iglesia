@@ -231,11 +231,13 @@ function Spinner() {
   return <div style={{ textAlign: "center", padding: 48, color: "var(--text-muted)" }}><i className="ti ti-loader-2" style={{ fontSize: 32, display: "block", marginBottom: 8 }} />Cargando...</div>;
 }
 
-function SectionHeader({ title, icon, action }) {
+function SectionHeader({ title, icon, action, role = "accent" }) {
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-      <h2 style={{ margin: 0, fontSize: 18, fontWeight: 500, display: "flex", alignItems: "center", gap: 8 }}>
-        <i className={`ti ti-${icon}`} style={{ fontSize: 20, color: "var(--text-accent)" }} aria-hidden />
+      <h2 style={{ margin: 0, fontSize: 18, fontWeight: 500, display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ width: 34, height: 34, borderRadius: 9, background: `var(--bg-${role})`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <i className={`ti ti-${icon}`} style={{ fontSize: 18, color: `var(--text-${role})` }} aria-hidden />
+        </span>
         {title}
       </h2>
       {action}
@@ -301,12 +303,12 @@ function LoginPage({ onLogin }) {
 // SIDEBAR NAVEGACIÓN
 // ─────────────────────────────────────────────────────────────
 const NAV_ITEMS = [
-  { id: "dashboard", icon: "layout-dashboard", label: "Inicio", perm: null },
-  { id: "miembros", icon: "users", label: "Miembros", perm: "miembros" },
-  { id: "asistencia", icon: "clipboard-check", label: "Asistencia", perm: "asistencia" },
-  { id: "historial", icon: "user-search", label: "Historial", perm: "asistencia" },
-  { id: "reportes", icon: "chart-bar", label: "Reportes", perm: "reportes" },
-  { id: "config", icon: "settings", label: "Configuración", perm: "config" },
+  { id: "dashboard", icon: "layout-dashboard", label: "Inicio", perm: null, role: "accent" },
+  { id: "miembros", icon: "users", label: "Miembros", perm: "miembros", role: "pro" },
+  { id: "asistencia", icon: "clipboard-check", label: "Asistencia", perm: "asistencia", role: "success" },
+  { id: "historial", icon: "user-search", label: "Historial", perm: "asistencia", role: "warning" },
+  { id: "reportes", icon: "chart-bar", label: "Reportes", perm: "reportes", role: "danger" },
+  { id: "config", icon: "settings", label: "Configuración", perm: "config", role: "accent" },
 ];
 
 function Sidebar({ active, onChange, usuario, onLogout }) {
@@ -330,8 +332,8 @@ function Sidebar({ active, onChange, usuario, onLogout }) {
           if (item.perm && !canDo(usuario, item.perm)) return null;
           const isActive = active === item.id;
           return (
-            <button key={item.id} onClick={() => onChange(item.id)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "9px 12px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 14, fontWeight: isActive ? 500 : 400, background: isActive ? "var(--bg-accent)" : "transparent", color: isActive ? "var(--text-accent)" : "var(--text-secondary)", marginBottom: 2, textAlign: "left", fontFamily: "var(--font-sans)" }}>
-              <i className={`ti ti-${item.icon}`} style={{ fontSize: 17, flexShrink: 0 }} aria-hidden />
+            <button key={item.id} onClick={() => onChange(item.id)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "9px 12px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 14, fontWeight: isActive ? 500 : 400, background: isActive ? `var(--bg-${item.role})` : "transparent", color: isActive ? `var(--text-${item.role})` : "var(--text-secondary)", marginBottom: 2, textAlign: "left", fontFamily: "var(--font-sans)" }}>
+              <i className={`ti ti-${item.icon}`} style={{ fontSize: 17, flexShrink: 0, color: isActive ? `var(--text-${item.role})` : "var(--text-muted)" }} aria-hidden />
               {item.label}
             </button>
           );
@@ -409,12 +411,12 @@ function Dashboard() {
           { label: "Reuniones (30d)", val: stats?.reuniones || 0, icon: "calendar-event", role: "pro" },
           { label: "Asistencia (30d)", val: `${stats?.pct || 0}%`, icon: "chart-line", role: "accent" },
         ].map(s => (
-          <div key={s.label} style={{ background: "var(--surface-1)", borderRadius: 12, padding: "14px 16px" }}>
+          <div key={s.label} style={{ background: "var(--surface-1)", borderRadius: 12, padding: "14px 16px", borderTop: `2px solid var(--border-${s.role})` }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
               <i className={`ti ti-${s.icon}`} style={{ fontSize: 16, color: `var(--text-${s.role})` }} aria-hidden />
               <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{s.label}</span>
             </div>
-            <div style={{ fontSize: 26, fontWeight: 500, color: "var(--text-primary)" }}>{s.val}</div>
+            <div style={{ fontSize: 26, fontWeight: 500, color: `var(--text-${s.role})` }}>{s.val}</div>
           </div>
         ))}
       </div>
@@ -528,6 +530,7 @@ function ModuloMiembros() {
       <SectionHeader
         title="Miembros"
         icon="users"
+        role="pro"
         action={
           <div style={{ display: "flex", gap: 8 }}>
             <Btn icon="file-spreadsheet" small onClick={exportarGoogleSheets} loading={exportando} variant="success">
@@ -967,7 +970,7 @@ function ModuloAsistencia() {
 
   return (
     <div>
-      <SectionHeader title="Tomar asistencia" icon="clipboard-check" />
+      <SectionHeader title="Tomar asistencia" icon="clipboard-check" role="success" />
 
       {!sesionAbierta ? (
         <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 24, maxWidth: 600 }}>
@@ -1147,7 +1150,7 @@ function ModuloReportes() {
 
   return (
     <div>
-      <SectionHeader title="Reportes y gráficos" icon="chart-bar" />
+      <SectionHeader title="Reportes y gráficos" icon="chart-bar" role="danger" />
 
       <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 20, marginBottom: 24 }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr auto", gap: 12, alignItems: "end" }}>
@@ -1530,7 +1533,7 @@ function ModuloHistorial() {
 
   return (
     <div>
-      <SectionHeader title="Historial de asistencia individual" icon="user-search" />
+      <SectionHeader title="Historial de asistencia individual" icon="user-search" role="warning" />
 
       {/* Buscador de miembro */}
       <div style={{ position: "relative", maxWidth: 480, marginBottom: 24 }} ref={dropRef}>
