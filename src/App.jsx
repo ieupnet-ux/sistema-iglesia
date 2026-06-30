@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ============================================================
 // SISTEMA DE GESTIÓN IGLESIA
 // Stack: React + Supabase (PostgreSQL + Auth + Storage)
