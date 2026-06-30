@@ -1,5 +1,6 @@
-import "./theme.css";
-// ============================================================
+
+
+ ============================================================
 // SISTEMA DE GESTIÓN IGLESIA
 // Stack: React + Supabase (PostgreSQL + Auth + Storage)
 // ============================================================
@@ -949,19 +950,21 @@ function ModuloAsistencia() {
   }, []);
 
   const abrirSesion = async () => {
-    if (!filtroTemplo || !filtroTipoReunion) { toast("Selecciona templo y tipo de reunión", "warn"); return; }
+    if (!filtroTipoReunion) { toast("Selecciona el tipo de reunión", "warn"); return; }
     setLoading(true);
     try {
-      // Buscar o crear reunión
+      // Buscar o crear reunión (templo_id puede ser null = todos los templos)
       let reunion = null;
-      const existing = await sb.query("reuniones", `?tipo_reunion_id=eq.${filtroTipoReunion}&templo_id=eq.${filtroTemplo}&fecha=eq.${filtroFecha}&select=*`);
+      let qExisting = `?tipo_reunion_id=eq.${filtroTipoReunion}&fecha=eq.${filtroFecha}&select=*`;
+      qExisting += filtroTemplo ? `&templo_id=eq.${filtroTemplo}` : `&templo_id=is.null`;
+      const existing = await sb.query("reuniones", qExisting);
       if (existing.length > 0) {
         reunion = existing[0];
       } else {
         const tipoR = tiposReunion.find(t => t.id === filtroTipoReunion);
         const res = await sb.insert("reuniones", {
           tipo_reunion_id: filtroTipoReunion,
-          templo_id: filtroTemplo,
+          templo_id: filtroTemplo || null,
           fecha: filtroFecha,
           hora: tipoR?.hora_defecto || null,
           created_by: sb.userId,
@@ -970,8 +973,10 @@ function ModuloAsistencia() {
       }
       setReunionActiva(reunion);
 
-      // Cargar miembros filtrados
-      let qMiembros = `?templo_id=eq.${filtroTemplo}&select=id,nombres,apellidos,foto_url,estado,miembro_cargos(cargo_id,activo),miembro_grupos(grupo_id,activo)&estado=neq.retirado&order=apellidos.asc`;
+      // Cargar miembros filtrados (de un templo o de todos)
+      let qMiembros = filtroTemplo
+        ? `?templo_id=eq.${filtroTemplo}&select=id,nombres,apellidos,foto_url,estado,templos(nombre),miembro_cargos(cargo_id,activo),miembro_grupos(grupo_id,activo)&estado=neq.retirado&order=apellidos.asc`
+        : `?select=id,nombres,apellidos,foto_url,estado,templos(nombre),miembro_cargos(cargo_id,activo),miembro_grupos(grupo_id,activo)&estado=neq.retirado&order=apellidos.asc`;
       const ms = await sb.query("miembros", qMiembros);
 
       // Filtrar por cargo/grupo si aplica
@@ -1048,8 +1053,8 @@ function ModuloAsistencia() {
         <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: isMobile ? 16 : 24, maxWidth: 600 }}>
           <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 16, color: "var(--text-primary)" }}>Configurar sesión de asistencia</div>
           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
-            <Sel label="Templo *" value={filtroTemplo} onChange={e => setFiltroTemplo(e.target.value)}>
-              <option value="">— Seleccionar —</option>
+            <Sel label="Templo" value={filtroTemplo} onChange={e => setFiltroTemplo(e.target.value)}>
+              <option value="">Todos los templos</option>
               {templos.map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}
             </Sel>
             <Inp label="Fecha *" type="date" value={filtroFecha} onChange={e => setFiltroFecha(e.target.value)} />
@@ -1083,7 +1088,7 @@ function ModuloAsistencia() {
             <div style={{ fontSize: 13, color: "var(--text-accent)" }}>
               <i className="ti ti-calendar-event" style={{ marginRight: 6 }} />
               <strong>{tiposReunion.find(t => t.id === filtroTipoReunion)?.nombre}</strong>
-              {" · "}{templos.find(t => t.id === filtroTemplo)?.nombre}
+              {" · "}{filtroTemplo ? templos.find(t => t.id === filtroTemplo)?.nombre : "Todos los templos"}
               {" · "}{fmtDate(filtroFecha)}
               {" · "}<strong>{miembros.length} miembro(s)</strong>
             </div>
@@ -1110,10 +1115,12 @@ function ModuloAsistencia() {
               return (
                 <div key={m.id} style={{ display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "center", gap: isMobile ? 10 : 14, padding: "12px 16px", borderBottom: idx < miembros.length - 1 ? "0.5px solid var(--border)" : "none", background: estado === "presente" ? "rgba(16,185,129,0.05)" : estado === "ausente" ? "rgba(239,68,68,0.04)" : "transparent" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <Avatar foto={m.foto_url} nombre={`${m.nombres} ${m.apellidos}`} size={34} />
+                    <Avatar foto={m.foto_url} nombre={`${m.nombres} ${m.apellidos}`} size={48} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>{m.apellidos}, {m.nombres}</div>
-                      <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{m.estado}</div>
+                      <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                        {!filtroTemplo && m.templos?.nombre ? `${m.templos.nombre} · ` : ""}{m.estado}
+                      </div>
                     </div>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(4, 1fr)" : "none", gridAutoFlow: isMobile ? "row" : "column", gap: 6 }}>
@@ -1889,4 +1896,3 @@ export default function App() {
     </AppCtx.Provider>
   );
 }
-
