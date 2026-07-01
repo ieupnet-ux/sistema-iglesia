@@ -1,3 +1,4 @@
+
 import "./theme.css";
 
 // ============================================================
@@ -1907,13 +1908,58 @@ function ModuloTareas() {
 
   const vencida = (t) => t.fecha_vencimiento && t.estado !== "completada" && t.estado !== "cancelada" && new Date(t.fecha_vencimiento) < new Date();
 
+  const copiarReporte = () => {
+    const pendientes = tareas.filter(t => t.estado === "pendiente" || t.estado === "en_progreso");
+    if (pendientes.length === 0) { toast("No hay tareas pendientes ni en progreso", "warn"); return; }
+
+    const hoy = new Date().toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" });
+    let texto = `📋 *Reporte de tareas — ${hoy}*\n\n`;
+
+    const enProgreso = pendientes.filter(t => t.estado === "en_progreso");
+    const pendientesSolo = pendientes.filter(t => t.estado === "pendiente");
+
+    if (enProgreso.length > 0) {
+      texto += `🔄 *En progreso (${enProgreso.length})*\n`;
+      enProgreso.forEach(t => {
+        const nombre = `${t.miembros?.nombres} ${t.miembros?.apellidos}`;
+        const vence = t.fecha_vencimiento ? ` · Vence: ${fmtDate(t.fecha_vencimiento)}` : "";
+        const ev = vencida(t) ? " ⚠️ VENCIDA" : "";
+        texto += `• ${t.titulo}\n  👤 ${nombre}${vence}${ev}\n`;
+      });
+      texto += "\n";
+    }
+
+    if (pendientesSolo.length > 0) {
+      texto += `⏳ *Pendientes (${pendientesSolo.length})*\n`;
+      pendientesSolo.forEach(t => {
+        const nombre = `${t.miembros?.nombres} ${t.miembros?.apellidos}`;
+        const vence = t.fecha_vencimiento ? ` · Vence: ${fmtDate(t.fecha_vencimiento)}` : "";
+        const ev = vencida(t) ? " ⚠️ VENCIDA" : "";
+        const prio = t.prioridad === "alta" ? " 🔴" : t.prioridad === "media" ? " 🟡" : " 🟢";
+        texto += `• ${t.titulo}${prio}\n  👤 ${nombre}${vence}${ev}\n`;
+      });
+    }
+
+    const vencidas = pendientes.filter(t => vencida(t)).length;
+    if (vencidas > 0) texto += `\n⚠️ _${vencidas} tarea(s) vencida(s) requieren atención_`;
+
+    navigator.clipboard.writeText(texto)
+      .then(() => toast("Reporte copiado al portapapeles ✓ — listo para pegar en WhatsApp o email", "ok"))
+      .catch(() => toast("No se pudo copiar. Intentá manualmente.", "error"));
+  };
+
   return (
     <div>
       <SectionHeader
         title="Tareas y comisiones"
         icon="checklist"
         role="danger"
-        action={canEdit && <Btn icon="plus" variant="primary" small onClick={() => setModal({ mode: "new", data: null })}>Nueva tarea</Btn>}
+        action={
+          <div style={{ display: "flex", gap: 8 }}>
+            <Btn icon="clipboard-copy" small variant="secondary" onClick={copiarReporte}>Copiar reporte</Btn>
+            {canEdit && <Btn icon="plus" variant="primary" small onClick={() => setModal({ mode: "new", data: null })}>Nueva tarea</Btn>}
+          </div>
+        }
       />
 
       {/* Contadores */}
