@@ -10,7 +10,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 // ── CONFIGURACIÓN ────────────────────────────────────────────
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-const CALLMEBOT_APIKEY = Deno.env.get("CALLMEBOT_APIKEY"); // se configura como secret
+const GREENAPI_ID_INSTANCE = Deno.env.get("GREENAPI_ID_INSTANCE");
+const GREENAPI_API_TOKEN = Deno.env.get("GREENAPI_API_TOKEN");
 
 // ── VERSÍCULOS Y MENSAJES DE BENDICIÓN ───────────────────────
 // Rotan automáticamente para que no sea siempre el mismo mensaje
@@ -96,7 +97,8 @@ Deno.serve(async (req) => {
     const resultados = [];
 
     for (const m of cumpleaneros) {
-      const telefono = m.whatsapp.replace(/\D/g, ""); // solo números
+      let telefono = m.whatsapp.replace(/\D/g, ""); // solo números
+      if (telefono.startsWith("0")) telefono = telefono.substring(1); // quitar 0 inicial si existe
       const edad = calcularEdad(m.fecha_nacimiento);
       const mensaje = construirMensaje(m.nombres, edad);
 
@@ -117,8 +119,15 @@ Deno.serve(async (req) => {
       }
 
       try {
-        const url = `https://api.callmebot.com/whatsapp.php?phone=${telefono}&text=${encodeURIComponent(mensaje)}&apikey=${CALLMEBOT_APIKEY}`;
-        const resp = await fetch(url);
+        const url = `https://7107.api.greenapi.com/waInstance${GREENAPI_ID_INSTANCE}/sendMessage/${GREENAPI_API_TOKEN}`;
+        const resp = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chatId: `${telefono}@c.us`,
+            message: mensaje,
+          }),
+        });
         const ok = resp.ok;
 
         await supabase.from("log_whatsapp").insert({
