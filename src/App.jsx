@@ -1,4 +1,5 @@
 import "./theme.css";
+
 // ============================================================
 // SISTEMA DE GESTIÓN IGLESIA
 // Stack: React + Supabase (PostgreSQL + Auth + Storage)
@@ -318,6 +319,7 @@ const NAV_ITEMS = [
   { id: "miembros", icon: "users", label: "Miembros", perm: "miembros", role: "pro" },
   { id: "asistencia", icon: "clipboard-check", label: "Asistencia", perm: "asistencia", role: "success" },
   { id: "historial", icon: "user-search", label: "Historial", perm: "asistencia", role: "warning" },
+  { id: "tareas", icon: "checklist", label: "Tareas", perm: "asistencia", role: "danger" },
   { id: "reportes", icon: "chart-bar", label: "Reportes", perm: "reportes", role: "danger" },
   { id: "config", icon: "settings", label: "Configuración", perm: "config", role: "accent" },
 ];
@@ -530,10 +532,12 @@ function ModuloMiembros() {
     const bendicion = obtenerMensajeDelDia();
     const msg = `🎉 ¡Feliz cumpleaños, ${m.nombres}! 🎂${edad ? ` Hoy cumples ${edad} años.` : ""}\n\n${bendicion}\n\nDe parte de toda tu familia en la iglesia, ¡que Dios te bendiga grandemente! 🙏✨`;
     try {
+      let telefono = m.whatsapp.replace(/\D/g, "");
+      if (telefono.startsWith("0")) telefono = telefono.substring(1);
       const resp = await fetch(GREENAPI_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chatId: `${m.whatsapp.replace(/\D/g,"")}@c.us`, message: msg }),
+        body: JSON.stringify({ chatId: `${telefono}@c.us`, message: msg }),
       });
       const ok = resp.ok;
       await sb.insert("log_whatsapp", { miembro_id: m.id, tipo: "cumpleanos", mensaje: msg, estado: ok ? "enviado" : "error" });
@@ -1844,6 +1848,394 @@ function ModuloHistorial() {
 }
 
 // ─────────────────────────────────────────────────────────────
+// MÓDULO TAREAS
+// ─────────────────────────────────────────────────────────────
+function ModuloTareas() {
+  const { usuario, toast } = useApp();
+  const isMobile = useIsMobile();
+  const canEdit = canDo(usuario, "asistencia");
+
+  const [tareas, setTareas] = useState([]);
+  const [miembros, setMiembros] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState(null); // null | {mode:"new"|"edit"|"view"|"reporte", data}
+
+  // Filtros
+  const [filtroEstado, setFiltroEstado] = useState("");
+  const [filtroPrioridad, setFiltroPrioridad] = useState("");
+  const [filtroMiembro, setFiltroMiembro] = useState("");
+  const [busqueda, setBusqueda] = useState("");
+
+  const ESTADOS = [
+    { val: "pendiente", label: "Pendiente", role: "warning" },
+    { val: "en_progreso", label: "En progreso", role: "accent" },
+    { val: "completada", label: "Completada", role: "success" },
+    { val: "cancelada", label: "Cancelada", role: "danger" },
+  ];
+
+  const PRIORIDADES = [
+    { val: "baja", label: "Baja", role: "success" },
+    { val: "media", label: "Media", role: "warning" },
+    { val: "alta", label: "Alta", role: "danger" },
+  ];
+
+  const cargar = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [ts, ms] = await Promise.all([
+        sb.query("tareas", "?select=*,miembros(id,nombres,apellidos,foto_url),asignado_por:usuarios_sistema!tareas_asignado_por_fkey(nombre)&order=created_at.desc"),
+        sb.query("miembros", "?select=id,nombres,apellidos,foto_url&estado=neq.retirado&order=apellidos.asc"),
+      ]);
+      setTareas(ts); setMiembros(ms);
+    } catch (e) { toast(e.message, "error"); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { cargar(); }, [cargar]);
+
+  const filtradas = tareas.filter(t => {
+    const q = busqueda.toLowerCase();
+    const matchQ = !q || t.titulo?.toLowerCase().includes(q) || `${t.miembros?.nombres} ${t.miembros?.apellidos}`.toLowerCase().includes(q);
+    const matchE = !filtroEstado || t.estado === filtroEstado;
+    const matchP = !filtroPrioridad || t.prioridad === filtroPrioridad;
+    const matchM = !filtroMiembro || t.miembro_id === filtroMiembro;
+    return matchQ && matchE && matchP && matchM;
+  });
+
+  const conteo = { pendiente: 0, en_progreso: 0, completada: 0, cancelada: 0 };
+  tareas.forEach(t => { if (conteo[t.estado] !== undefined) conteo[t.estado]++; });
+
+  const vencida = (t) => t.fecha_vencimiento && t.estado !== "completada" && t.estado !== "cancelada" && new Date(t.fecha_vencimiento) < new Date();
+
+  return (
+    <div>
+      <SectionHeader
+        title="Tareas y comisiones"
+        icon="checklist"
+        role="danger"
+        action={canEdit && <Btn icon="plus" variant="primary" small onClick={() => setModal({ mode: "new", data: null })}>Nueva tarea</Btn>}
+      />
+
+      {/* Contadores */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10, marginBottom: 20 }}>
+        {ESTADOS.map(e => (
+          <div key={e.val} onClick={() => setFiltroEstado(filtroEstado === e.val ? "" : e.val)} style={{ background: filtroEstado === e.val ? `var(--bg-${e.role})` : "var(--surface-1)", border: `0.5px solid ${filtroEstado === e.val ? `var(--border-${e.role})` : "var(--border)"}`, borderRadius: 10, padding: "12px 14px", cursor: "pointer", textAlign: "center", transition: "all 0.15s" }}>
+            <div style={{ fontSize: 24, fontWeight: 500, color: `var(--text-${e.role})` }}>{conteo[e.val]}</div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{e.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filtros */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
+        <input placeholder="Buscar por título o miembro..." value={busqueda} onChange={e => setBusqueda(e.target.value)} style={{ boxSizing: "border-box" }} />
+        <select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)}>
+          <option value="">Todos los estados</option>
+          {ESTADOS.map(e => <option key={e.val} value={e.val}>{e.label}</option>)}
+        </select>
+        <select value={filtroPrioridad} onChange={e => setFiltroPrioridad(e.target.value)}>
+          <option value="">Todas las prioridades</option>
+          {PRIORIDADES.map(p => <option key={p.val} value={p.val}>{p.label}</option>)}
+        </select>
+        <select value={filtroMiembro} onChange={e => setFiltroMiembro(e.target.value)}>
+          <option value="">Todos los miembros</option>
+          {miembros.map(m => <option key={m.id} value={m.id}>{m.apellidos}, {m.nombres}</option>)}
+        </select>
+      </div>
+
+      <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>{filtradas.length} tarea(s)</div>
+
+      {loading ? <Spinner /> : filtradas.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 0", color: "var(--text-muted)" }}>
+          <i className="ti ti-checklist" style={{ fontSize: 40, display: "block", marginBottom: 10 }} />
+          <div style={{ fontSize: 14, color: "var(--text-secondary)" }}>No hay tareas{busqueda || filtroEstado || filtroPrioridad ? " con esos filtros" : " registradas"}</div>
+        </div>
+      ) : isMobile ? (
+        /* Vista tarjetas mobile */
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {filtradas.map(t => {
+            const ev = vencida(t);
+            const prioridad = PRIORIDADES.find(p => p.val === t.prioridad);
+            const estado = ESTADOS.find(e => e.val === t.estado);
+            return (
+              <div key={t.id} style={{ background: ev ? "var(--bg-danger)" : "var(--surface-2)", border: `0.5px solid ${ev ? "var(--border-danger)" : "var(--border)"}`, borderRadius: 12, padding: 14 }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 10 }}>
+                  <Avatar foto={t.miembros?.foto_url} nombre={`${t.miembros?.nombres} ${t.miembros?.apellidos}`} size={38} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 15, fontWeight: 500, color: "var(--text-primary)", marginBottom: 2 }}>{t.titulo}</div>
+                    <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{t.miembros?.apellidos}, {t.miembros?.nombres}</div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                  {estado && <Badge label={estado.label} role={estado.role} />}
+                  {prioridad && <Badge label={prioridad.label} role={prioridad.role} />}
+                  {ev && <Badge label="VENCIDA" role="danger" />}
+                  {t.fecha_vencimiento && <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Vence: {fmtDate(t.fecha_vencimiento)}</span>}
+                </div>
+                <div style={{ display: "flex", gap: 8, paddingTop: 10, borderTop: "0.5px solid var(--border)" }}>
+                  <Btn small icon="eye" onClick={() => setModal({ mode: "view", data: t })} style={{ flex: 1, justifyContent: "center" }}>Ver</Btn>
+                  {canEdit && <Btn small icon="edit" onClick={() => setModal({ mode: "edit", data: t })} style={{ flex: 1, justifyContent: "center" }}>Editar</Btn>}
+                  {canEdit && <Btn small icon="file-text" variant="success" onClick={() => setModal({ mode: "reporte", data: t })} style={{ flex: 1, justifyContent: "center" }}>Reporte</Btn>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        /* Vista tabla desktop */
+        <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+            <thead>
+              <tr style={{ background: "var(--surface-1)" }}>
+                {["Tarea", "Asignado a", "Prioridad", "Estado", "Vencimiento", "Acciones"].map((h, i) => (
+                  <th key={i} style={{ padding: "10px 14px", fontSize: 12, fontWeight: 500, color: "var(--text-secondary)", textAlign: "left", borderBottom: "0.5px solid var(--border)", width: [null, 180, 100, 110, 110, 130][i] }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtradas.map((t, idx) => {
+                const ev = vencida(t);
+                const prioridad = PRIORIDADES.find(p => p.val === t.prioridad);
+                const estado = ESTADOS.find(e => e.val === t.estado);
+                return (
+                  <tr key={t.id} style={{ borderBottom: idx < filtradas.length - 1 ? "0.5px solid var(--border)" : "none", background: ev ? "var(--bg-danger)" : "transparent" }}
+                    onMouseEnter={e => { if (!ev) e.currentTarget.style.background = "var(--surface-1)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = ev ? "var(--bg-danger)" : "transparent"; }}>
+                    <td style={{ padding: "10px 14px" }}>
+                      <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>{t.titulo}</div>
+                      {t.descripcion && <div style={{ fontSize: 12, color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.descripcion}</div>}
+                    </td>
+                    <td style={{ padding: "10px 14px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <Avatar foto={t.miembros?.foto_url} nombre={`${t.miembros?.nombres} ${t.miembros?.apellidos}`} size={28} />
+                        <div style={{ fontSize: 13, color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.miembros?.apellidos}, {t.miembros?.nombres}</div>
+                      </div>
+                    </td>
+                    <td style={{ padding: "10px 14px" }}>{prioridad && <Badge label={prioridad.label} role={prioridad.role} />}</td>
+                    <td style={{ padding: "10px 14px" }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        {estado && <Badge label={estado.label} role={estado.role} />}
+                        {ev && <Badge label="VENCIDA" role="danger" />}
+                      </div>
+                    </td>
+                    <td style={{ padding: "10px 14px", fontSize: 13, color: ev ? "var(--text-danger)" : "var(--text-secondary)" }}>{t.fecha_vencimiento ? fmtDate(t.fecha_vencimiento) : "—"}</td>
+                    <td style={{ padding: "10px 14px" }}>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <Btn small icon="eye" onClick={() => setModal({ mode: "view", data: t })} />
+                        {canEdit && <Btn small icon="edit" onClick={() => setModal({ mode: "edit", data: t })} />}
+                        {canEdit && <Btn small icon="file-text" variant="success" onClick={() => setModal({ mode: "reporte", data: t })} title="Agregar reporte" />}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {modal && (
+        <ModalTarea
+          mode={modal.mode}
+          data={modal.data}
+          miembros={miembros}
+          usuario={usuario}
+          ESTADOS={ESTADOS}
+          PRIORIDADES={PRIORIDADES}
+          onClose={() => setModal(null)}
+          onSaved={() => { setModal(null); cargar(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// MODAL TAREA (nuevo / editar / ver / reporte)
+// ─────────────────────────────────────────────────────────────
+function ModalTarea({ mode, data, miembros, usuario, ESTADOS, PRIORIDADES, onClose, onSaved }) {
+  const { toast } = useApp();
+  const isMobile = useIsMobile();
+  const [saving, setSaving] = useState(false);
+
+  const [form, setForm] = useState({
+    titulo: "", descripcion: "", miembro_id: "", prioridad: "media",
+    estado: "pendiente", fecha_vencimiento: "", notas_internas: "",
+    ...(data || {}),
+  });
+  const [reporteTexto, setReporteTexto] = useState("");
+  const [reportes, setReportes] = useState([]);
+  const [loadingReportes, setLoadingReportes] = useState(false);
+
+  useEffect(() => {
+    if ((mode === "view" || mode === "reporte") && data?.id) {
+      cargarReportes();
+    }
+  }, [mode, data]);
+
+  const cargarReportes = async () => {
+    setLoadingReportes(true);
+    try {
+      const rs = await sb.query("tarea_reportes", `?tarea_id=eq.${data.id}&select=*,usuarios_sistema(nombre)&order=created_at.desc`);
+      setReportes(rs);
+    } catch {}
+    finally { setLoadingReportes(false); }
+  };
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const isView = mode === "view";
+  const isReporte = mode === "reporte";
+
+  const handleSave = async () => {
+    if (!form.titulo?.trim()) { toast("El título es requerido", "warn"); return; }
+    if (!form.miembro_id) { toast("Seleccioná un miembro", "warn"); return; }
+    setSaving(true);
+    try {
+      const payload = {
+        titulo: form.titulo.trim(),
+        descripcion: form.descripcion?.trim() || null,
+        miembro_id: form.miembro_id,
+        prioridad: form.prioridad,
+        estado: form.estado,
+        fecha_vencimiento: form.fecha_vencimiento || null,
+        notas_internas: form.notas_internas?.trim() || null,
+        asignado_por: usuario?.id,
+        updated_at: new Date().toISOString(),
+      };
+      if (mode === "new") {
+        await sb.insert("tareas", payload);
+        toast("Tarea creada ✓", "ok");
+      } else {
+        await sb.update("tareas", data.id, payload);
+        toast("Tarea actualizada ✓", "ok");
+      }
+      onSaved();
+    } catch (e) { toast(e.message, "error"); }
+    finally { setSaving(false); }
+  };
+
+  const handleReporte = async () => {
+    if (!reporteTexto.trim()) { toast("Escribí el reporte antes de guardar", "warn"); return; }
+    setSaving(true);
+    try {
+      await sb.insert("tarea_reportes", {
+        tarea_id: data.id,
+        texto: reporteTexto.trim(),
+        reportado_por: usuario?.id,
+      });
+      // Actualizar estado si el reporte indica completado
+      setReporteTexto("");
+      await cargarReportes();
+      toast("Reporte guardado ✓", "ok");
+    } catch (e) { toast(e.message, "error"); }
+    finally { setSaving(false); }
+  };
+
+  const titulo = { new: "Nueva tarea", edit: "Editar tarea", view: "Ver tarea", reporte: "Reportes de avance" }[mode];
+
+  return (
+    <Modal title={titulo} onClose={onClose} wide={isReporte || isView}>
+      {(mode === "new" || mode === "edit") && (
+        <div>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
+            <div style={{ gridColumn: isMobile ? "1" : "1 / -1" }}>
+              <Inp label="Título *" value={form.titulo} onChange={e => set("titulo", e.target.value)} placeholder="Ej: Preparar estudio bíblico del domingo" />
+            </div>
+            <Sel label="Asignado a *" value={form.miembro_id} onChange={e => set("miembro_id", e.target.value)}>
+              <option value="">— Seleccionar miembro —</option>
+              {miembros.map(m => <option key={m.id} value={m.id}>{m.apellidos}, {m.nombres}</option>)}
+            </Sel>
+            <Inp label="Fecha de vencimiento" type="date" value={form.fecha_vencimiento || ""} onChange={e => set("fecha_vencimiento", e.target.value)} />
+            <Sel label="Prioridad" value={form.prioridad} onChange={e => set("prioridad", e.target.value)}>
+              {PRIORIDADES.map(p => <option key={p.val} value={p.val}>{p.label}</option>)}
+            </Sel>
+            <Sel label="Estado" value={form.estado} onChange={e => set("estado", e.target.value)}>
+              {ESTADOS.map(e => <option key={e.val} value={e.val}>{e.label}</option>)}
+            </Sel>
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 4 }}>Descripción</label>
+            <textarea value={form.descripcion || ""} onChange={e => set("descripcion", e.target.value)} rows={3} placeholder="Detalle de la tarea..." style={{ width: "100%", boxSizing: "border-box", resize: "vertical", borderRadius: 8, border: "0.5px solid var(--border)", padding: "8px 10px", fontSize: 14, fontFamily: "var(--font-sans)", background: "var(--surface-2)", color: "var(--text-primary)" }} />
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 4 }}>Notas internas (solo visible para el equipo)</label>
+            <textarea value={form.notas_internas || ""} onChange={e => set("notas_internas", e.target.value)} rows={2} placeholder="Notas privadas..." style={{ width: "100%", boxSizing: "border-box", resize: "vertical", borderRadius: 8, border: "0.5px solid var(--border)", padding: "8px 10px", fontSize: 14, fontFamily: "var(--font-sans)", background: "var(--surface-2)", color: "var(--text-primary)" }} />
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+            <Btn onClick={onClose}>Cancelar</Btn>
+            <Btn variant="primary" icon="device-floppy" loading={saving} onClick={handleSave}>
+              {saving ? "Guardando..." : "Guardar"}
+            </Btn>
+          </div>
+        </div>
+      )}
+
+      {(isView || isReporte) && data && (
+        <div>
+          {/* Info de la tarea */}
+          <div style={{ background: "var(--surface-1)", borderRadius: 10, padding: 16, marginBottom: 20 }}>
+            <div style={{ fontSize: 17, fontWeight: 500, marginBottom: 10 }}>{data.titulo}</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+              {ESTADOS.find(e => e.val === data.estado) && <Badge label={ESTADOS.find(e => e.val === data.estado).label} role={ESTADOS.find(e => e.val === data.estado).role} />}
+              {PRIORIDADES.find(p => p.val === data.prioridad) && <Badge label={`Prioridad ${PRIORIDADES.find(p => p.val === data.prioridad).label}`} role={PRIORIDADES.find(p => p.val === data.prioridad).role} />}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 8, fontSize: 13, color: "var(--text-secondary)" }}>
+              <div><strong>Asignado a:</strong> {data.miembros?.apellidos}, {data.miembros?.nombres}</div>
+              <div><strong>Vencimiento:</strong> {data.fecha_vencimiento ? fmtDate(data.fecha_vencimiento) : "Sin fecha"}</div>
+              {data.descripcion && <div style={{ gridColumn: "1 / -1" }}><strong>Descripción:</strong> {data.descripcion}</div>}
+              {data.notas_internas && <div style={{ gridColumn: "1 / -1" }}><strong>Notas internas:</strong> {data.notas_internas}</div>}
+            </div>
+          </div>
+
+          {/* Reportes de avance */}
+          <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 12 }}>
+            <i className="ti ti-message-report" style={{ marginRight: 6, color: "var(--text-success)" }} />
+            Reportes de avance ({reportes.length})
+          </div>
+
+          {loadingReportes ? <Spinner /> : reportes.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "24px 0", color: "var(--text-muted)", fontSize: 13 }}>
+              <i className="ti ti-notes-off" style={{ fontSize: 28, display: "block", marginBottom: 8 }} />
+              Aún no hay reportes de avance para esta tarea
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+              {reportes.map((r, i) => (
+                <div key={r.id} style={{ background: "var(--surface-1)", borderRadius: 10, padding: "12px 14px", borderLeft: "3px solid var(--border-success)" }}>
+                  <div style={{ fontSize: 13, color: "var(--text-primary)", marginBottom: 6, lineHeight: 1.5 }}>{r.texto}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                    {r.usuarios_sistema?.nombre || "Sistema"} — {new Date(r.created_at).toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Agregar nuevo reporte */}
+          {isReporte && (
+            <div style={{ borderTop: "0.5px solid var(--border)", paddingTop: 16 }}>
+              <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 6 }}>Agregar reporte de avance</label>
+              <textarea value={reporteTexto} onChange={e => setReporteTexto(e.target.value)} rows={3} placeholder="Describí el avance, resultado o novedad de esta tarea..." style={{ width: "100%", boxSizing: "border-box", resize: "vertical", borderRadius: 8, border: "0.5px solid var(--border)", padding: "8px 10px", fontSize: 14, fontFamily: "var(--font-sans)", background: "var(--surface-2)", color: "var(--text-primary)", marginBottom: 10 }} />
+              <div style={{ display: "flex", gap: 10, justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" }}>
+                <Sel label="" value={form.estado} onChange={async e => {
+                  set("estado", e.target.value);
+                  try { await sb.update("tareas", data.id, { estado: e.target.value, updated_at: new Date().toISOString() }); toast("Estado actualizado ✓", "ok"); onSaved(); } catch {}
+                }} style={{ marginBottom: 0, minWidth: 180 }}>
+                  {ESTADOS.map(e => <option key={e.val} value={e.val}>{e.label}</option>)}
+                </Sel>
+                <Btn variant="success" icon="send" loading={saving} onClick={handleReporte}>
+                  {saving ? "Guardando..." : "Guardar reporte"}
+                </Btn>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // APP PRINCIPAL
 // ─────────────────────────────────────────────────────────────
 export default function App() {
@@ -1884,7 +2276,7 @@ export default function App() {
     </AppCtx.Provider>
   );
 
-  const PAGES = { dashboard: Dashboard, miembros: ModuloMiembros, asistencia: ModuloAsistencia, historial: ModuloHistorial, reportes: ModuloReportes, config: ModuloConfig };
+  const PAGES = { dashboard: Dashboard, miembros: ModuloMiembros, asistencia: ModuloAsistencia, historial: ModuloHistorial, tareas: ModuloTareas, reportes: ModuloReportes, config: ModuloConfig };
   const PageComp = PAGES[page] || Dashboard;
   const currentNav = NAV_ITEMS.find(n => n.id === page);
 
