@@ -1,3 +1,23 @@
+// ===========================================================
+// SISTEMA DE GESTIÓN IGLESIA
+// Stack: React + Supabase (PostgreSQL + Auth + Storage)
+// ============================================================
+// CONFIGURACIÓN INICIAL:
+// 1. Crea un proyecto en https://supabase.com
+// 2. Ejecuta el SQL de setup en el Editor SQL de Supabase
+// 3. Reemplaza SUPABASE_URL y SUPABASE_ANON_KEY abajo
+// 4. Crea un bucket "miembros" en Storage (público)
+// 5. Crea el primer usuario en Supabase Auth y luego en la
+//    tabla usuarios_sistema con rol superadmin
+// ============================================================
+import "./theme.css";
+import { useState, useEffect, useCallback, createContext, useContext, useRef } from "react";
+import {
+  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+} from "recharts";
+
+
 // ─────────────────────────────────────────────────────────────
 // MÓDULO LEGAJOS
 // Pegar este bloque completo en tu archivo principal, ANTES de
@@ -503,26 +523,7 @@ function ModalHitoLegajo({ miembro, usuario, onClose, onSaved }) {
 }
 
 
-import "./theme.css";
 
-// ============================================================
-// SISTEMA DE GESTIÓN IGLESIA
-// Stack: React + Supabase (PostgreSQL + Auth + Storage)
-// ============================================================
-// CONFIGURACIÓN INICIAL:
-// 1. Crea un proyecto en https://supabase.com
-// 2. Ejecuta el SQL de setup en el Editor SQL de Supabase
-// 3. Reemplaza SUPABASE_URL y SUPABASE_ANON_KEY abajo
-// 4. Crea un bucket "miembros" en Storage (público)
-// 5. Crea el primer usuario en Supabase Auth y luego en la
-//    tabla usuarios_sistema con rol superadmin
-// ============================================================
-
-import { useState, useEffect, useCallback, createContext, useContext, useRef } from "react";
-import {
-  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-} from "recharts";
 
 // ── SUPABASE CONFIG ──────────────────────────────────────────
 const SUPABASE_URL = "https://yaywdqnatifscsyeobsg.supabase.co";
