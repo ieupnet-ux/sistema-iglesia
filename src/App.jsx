@@ -1938,6 +1938,8 @@ function ModuloTareas() {
   const [filtroPrioridad, setFiltroPrioridad] = useState("");
   const [filtroMiembro, setFiltroMiembro] = useState("");
   const [busqueda, setBusqueda] = useState("");
+  const [filtroDesde, setFiltroDesde] = useState("");
+  const [filtroHasta, setFiltroHasta] = useState("");
 
   const ESTADOS = [
     { val: "pendiente", label: "Pendiente", role: "warning" },
@@ -1972,7 +1974,9 @@ function ModuloTareas() {
     const matchE = !filtroEstado || t.estado === filtroEstado;
     const matchP = !filtroPrioridad || t.prioridad === filtroPrioridad;
     const matchM = !filtroMiembro || t.miembro_id === filtroMiembro;
-    return matchQ && matchE && matchP && matchM;
+    const matchDesde = !filtroDesde || (t.fecha_vencimiento && t.fecha_vencimiento >= filtroDesde);
+    const matchHasta = !filtroHasta || (t.fecha_vencimiento && t.fecha_vencimiento <= filtroHasta);
+    return matchQ && matchE && matchP && matchM && matchDesde && matchHasta;
   });
 
   const conteo = { pendiente: 0, en_progreso: 0, completada: 0, cancelada: 0 };
@@ -1981,11 +1985,35 @@ function ModuloTareas() {
   const vencida = (t) => t.fecha_vencimiento && t.estado !== "completada" && t.estado !== "cancelada" && new Date(t.fecha_vencimiento) < new Date();
 
   const copiarReporte = () => {
-    const pendientes = tareas.filter(t => t.estado === "pendiente" || t.estado === "en_progreso");
-    if (pendientes.length === 0) { toast("No hay tareas pendientes ni en progreso", "warn"); return; }
+    // Usa las tareas YA filtradas por todos los filtros activos (incluyendo período)
+    const pendientes = filtradas.filter(t => t.estado === "pendiente" || t.estado === "en_progreso");
+    const completadas = filtradas.filter(t => t.estado === "completada");
+
+    if (filtradas.length === 0) { toast("No hay tareas con los filtros actuales", "warn"); return; }
 
     const hoy = new Date().toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" });
-    let texto = `📋 *Reporte de tareas — ${hoy}*\n\n`;
+    let encabezado = `📋 *Reporte de tareas — ${hoy}*`;
+
+    // Indicar período si está filtrado
+    if (filtroDesde || filtroHasta) {
+      const desde = filtroDesde ? fmtDate(filtroDesde) : "inicio";
+      const hasta = filtroHasta ? fmtDate(filtroHasta) : "hoy";
+      encabezado += `\n📅 Período: ${desde} → ${hasta}`;
+    }
+    if (filtroMiembro) {
+      const m = miembros.find(m => m.id === filtroMiembro);
+      if (m) encabezado += `\n👤 Miembro: ${m.apellidos}, ${m.nombres}`;
+    }
+    if (filtroEstado) {
+      const e = ESTADOS.find(e => e.val === filtroEstado);
+      if (e) encabezado += `\n🔖 Estado: ${e.label}`;
+    }
+    if (filtroPrioridad) {
+      const p = PRIORIDADES.find(p => p.val === filtroPrioridad);
+      if (p) encabezado += `\n🎯 Prioridad: ${p.label}`;
+    }
+
+    let texto = encabezado + "\n\n";
 
     const enProgreso = pendientes.filter(t => t.estado === "en_progreso");
     const pendientesSolo = pendientes.filter(t => t.estado === "pendiente");
@@ -2010,14 +2038,27 @@ function ModuloTareas() {
         const prio = t.prioridad === "alta" ? " 🔴" : t.prioridad === "media" ? " 🟡" : " 🟢";
         texto += `• ${t.titulo}${prio}\n  👤 ${nombre}${vence}${ev}\n`;
       });
+      texto += "\n";
+    }
+
+    if (completadas.length > 0) {
+      texto += `✅ *Completadas (${completadas.length})*\n`;
+      completadas.forEach(t => {
+        const nombre = `${t.miembros?.nombres} ${t.miembros?.apellidos}`;
+        const vence = t.fecha_vencimiento ? ` · ${fmtDate(t.fecha_vencimiento)}` : "";
+        texto += `• ${t.titulo}\n  👤 ${nombre}${vence}\n`;
+      });
+      texto += "\n";
     }
 
     const vencidas = pendientes.filter(t => vencida(t)).length;
-    if (vencidas > 0) texto += `\n⚠️ _${vencidas} tarea(s) vencida(s) requieren atención_`;
+    if (vencidas > 0) texto += `⚠️ _${vencidas} tarea(s) vencida(s) requieren atención_\n`;
+
+    texto += `\n_Total: ${filtradas.length} tarea(s)_`;
 
     navigator.clipboard.writeText(texto)
-      .then(() => toast("Reporte copiado al portapapeles ✓ — listo para pegar en WhatsApp o email", "ok"))
-      .catch(() => toast("No se pudo copiar. Intentá manualmente.", "error"));
+      .then(() => toast("Reporte copiado ✓ — incluye los filtros aplicados", "ok"))
+      .catch(() => toast("No se pudo copiar automáticamente. Intentá manualmente.", "error"));
   };
 
   return (
@@ -2045,7 +2086,7 @@ function ModuloTareas() {
       </div>
 
       {/* Filtros */}
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
         <input placeholder="Buscar por título o miembro..." value={busqueda} onChange={e => setBusqueda(e.target.value)} style={{ boxSizing: "border-box" }} />
         <select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)}>
           <option value="">Todos los estados</option>
@@ -2061,7 +2102,24 @@ function ModuloTareas() {
         </select>
       </div>
 
-      <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>{filtradas.length} tarea(s)</div>
+      {/* Filtro por período de vencimiento */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr auto", gap: 10, marginBottom: 16, alignItems: "flex-end" }}>
+        <div>
+          <label style={{ display: "block", fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>Vence desde</label>
+          <input type="date" value={filtroDesde} onChange={e => setFiltroDesde(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
+        </div>
+        <div>
+          <label style={{ display: "block", fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>Vence hasta</label>
+          <input type="date" value={filtroHasta} onChange={e => setFiltroHasta(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
+        </div>
+        {(filtroDesde || filtroHasta || filtroEstado || filtroPrioridad || filtroMiembro || busqueda) && (
+          <Btn small icon="x" onClick={() => { setFiltroDesde(""); setFiltroHasta(""); setFiltroEstado(""); setFiltroPrioridad(""); setFiltroMiembro(""); setBusqueda(""); }}>
+            Limpiar filtros
+          </Btn>
+        )}
+      </div>
+
+      <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>{filtradas.length} tarea(s){filtradas.length !== tareas.length ? ` de ${tareas.length} total` : ""}</div>
 
       {loading ? <Spinner /> : filtradas.length === 0 ? (
         <div style={{ textAlign: "center", padding: "48px 0", color: "var(--text-muted)" }}>
