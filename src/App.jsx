@@ -2104,11 +2104,11 @@ function ModuloTareas() {
       ) : (
         /* Vista tabla desktop */
         <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "auto" }}>
             <thead>
               <tr style={{ background: "var(--surface-1)" }}>
                 {["Tarea", "Asignado a", "Prioridad", "Estado", "Vencimiento", "Acciones"].map((h, i) => (
-                  <th key={i} style={{ padding: "10px 14px", fontSize: 12, fontWeight: 500, color: "var(--text-secondary)", textAlign: "left", borderBottom: "0.5px solid var(--border)", width: [null, 180, 100, 110, 110, 160][i] }}>{h}</th>
+                  <th key={i} style={{ padding: "10px 14px", fontSize: 12, fontWeight: 500, color: "var(--text-secondary)", textAlign: "left", borderBottom: "0.5px solid var(--border)", width: [null, 180, 100, 110, 110, 200][i] }}>{h}</th>
                 ))}
               </tr>
             </thead>
