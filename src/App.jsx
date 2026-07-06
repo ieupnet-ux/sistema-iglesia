@@ -1955,7 +1955,7 @@ function ModuloTareas() {
     setLoading(true);
     try {
       const [ts, ms] = await Promise.all([
-        sb.query("tareas", "?select=*,miembros(id,nombres,apellidos,foto_url),asignado_por:usuarios_sistema!tareas_asignado_por_fkey(nombre)&order=created_at.desc"),
+        sb.query("tareas", "?select=*,miembros(id,nombres,apellidos,foto_url),asignado_por:usuarios_sistema!tareas_asignado_por_fkey(nombre)&order=fecha_vencimiento.asc.nullslast"),
         sb.query("miembros", "?select=id,nombres,apellidos,foto_url&estado=neq.retirado&order=apellidos.asc"),
       ]);
       setTareas(ts); setMiembros(ms);
