@@ -1,141 +1,281 @@
 /* ============================================================
-   SISTEMA IGLESIA — Variables de color y tema
-   Agregar este import en src/index.js o src/App.jsx:
-   import './theme.css';
+   TEMA "ZAFIRO & MARFIL" — Unión Pentecostal
+   Diseño moderno y elegante para el sistema de gestión.
+   Reemplaza por completo el contenido de src/theme.css.
+   No requiere ningún cambio en App.jsx.
    ============================================================ */
 
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Hanken+Grotesk:wght@400;500;600;700&display=swap');
+
 :root {
-  /* Superficies */
-  --surface-0: #fafaf8;
-  --surface-1: #f1efe8;
-  --surface-2: #ffffff;
+  /* ── Superficies ─────────────────────────────────────────
+     0 = fondo general · 1 = sidebar y tarjetas suaves · 2 = tarjetas y modales */
+  --surface-0: #F1F3F7;
+  --surface-1: #F9FAFC;
+  --surface-2: #FFFFFF;
 
-  /* Texto */
-  --text-primary: #1a1a18;
-  --text-secondary: #5f5e5a;
-  --text-muted: #888780;
+  /* ── Bordes ── */
+  --border: #E1E5EC;
+  --border-strong: #C6CDD9;
 
-  /* Bordes */
-  --border: rgba(0,0,0,0.08);
-  --border-strong: rgba(0,0,0,0.16);
-  --border-stronger: rgba(0,0,0,0.32);
+  /* ── Texto ── */
+  --text-primary: #1B2437;
+  --text-secondary: #46526A;
+  --text-muted: #8A94A8;
 
-  /* Accent (azul) */
-  --bg-accent: #e6f1fb;
-  --border-accent: #85b7eb;
-  --text-accent: #0c447c;
-  --fill-accent: #378add;
-  --on-accent: #ffffff;
+  /* ── Acento principal (zafiro) ── */
+  --fill-accent: #1F4E9C;          /* botones primarios */
+  --on-accent: #FFFFFF;
+  --bg-accent: #E8EFFA;
+  --text-accent: #1C4A96;
+  --border-accent: #B9CDEC;
 
-  /* Pro (morado) */
-  --bg-pro: #eeedfe;
-  --border-pro: #afa9ec;
-  --text-pro: #3c3489;
-  --fill-pro: #7f77dd;
-  --on-pro: #ffffff;
+  /* ── Éxito (esmeralda serena) ── */
+  --bg-success: #E4F3EC;
+  --text-success: #17714F;
+  --border-success: #B4DCC9;
 
-  /* Success (verde) */
-  --bg-success: #eaf3de;
-  --border-success: #97c459;
-  --text-success: #27500a;
-  --fill-success: #639922;
-  --on-success: #1a1a18;
+  /* ── Peligro (granate suave) ── */
+  --bg-danger: #FBEAEA;
+  --text-danger: #AE3A40;
+  --border-danger: #EFC6C8;
 
-  /* Warning (ámbar) */
-  --bg-warning: #faeeda;
-  --border-warning: #ef9f27;
-  --text-warning: #633806;
-  --fill-warning: #ba7517;
-  --on-warning: #1a1a18;
+  /* ── Advertencia (dorado litúrgico) ── */
+  --bg-warning: #FBF3DF;
+  --text-warning: #8A6512;
+  --border-warning: #E9D6A4;
 
-  /* Danger (rojo/coral) */
-  --bg-danger: #faece7;
-  --border-danger: #f0997b;
-  --text-danger: #712b13;
-  --fill-danger: #d85a30;
-  --on-danger: #ffffff;
+  /* ── "Pro" (ciruela, módulos Miembros y Legajos) ── */
+  --bg-pro: #EFEAF9;
+  --text-pro: #5A3FA6;
+  --border-pro: #D3C7EE;
 
-  /* Tipografía */
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
-  --font-mono: "SF Mono", Monaco, "Cascadia Code", monospace;
+  /* ── Forma y tipografía ── */
+  --radius: 10px;
+  --font-sans: 'Hanken Grotesk', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-display: 'Fraunces', Georgia, serif;
 
-  /* Layout */
-  --radius: 8px;
+  /* ── Sombras reutilizables ── */
+  --shadow-soft: 0 1px 2px rgba(27, 36, 55, 0.05), 0 4px 16px rgba(27, 36, 55, 0.06);
+  --shadow-focus: 0 0 0 3px rgba(31, 78, 156, 0.18);
 }
 
-/* Modo oscuro (opcional, se activa automáticamente según el sistema) */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --surface-0: #1c1c1a;
-    --surface-1: #242422;
-    --surface-2: #2c2c2a;
+/* ============================================================
+   BASE
+   ============================================================ */
 
-    --text-primary: #f1efe8;
-    --text-secondary: #b4b2a9;
-    --text-muted: #888780;
+* { box-sizing: border-box; }
 
-    --border: rgba(255,255,255,0.08);
-    --border-strong: rgba(255,255,255,0.16);
-    --border-stronger: rgba(255,255,255,0.32);
-
-    --bg-accent: #0c447c;
-    --border-accent: #185fa5;
-    --text-accent: #b5d4f4;
-
-    --bg-pro: #3c3489;
-    --border-pro: #534ab7;
-    --text-pro: #cecbf6;
-
-    --bg-success: #27500a;
-    --border-success: #3b6d11;
-    --text-success: #c0dd97;
-
-    --bg-warning: #633806;
-    --border-warning: #854f0b;
-    --text-warning: #fac775;
-
-    --bg-danger: #712b13;
-    --border-danger: #993c1d;
-    --text-danger: #f5c4b3;
-  }
-}
-
-* {
-  box-sizing: border-box;
+html, body {
+  margin: 0;
+  padding: 0;
 }
 
 body {
-  margin: 0;
-  font-family: var(--font-sans);
   background: var(--surface-0);
   color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-input, select, textarea, button {
+/* Los títulos llevan la serif elegante — le da identidad al sistema */
+h1, h2, h3 {
+  font-family: var(--font-display);
+  font-weight: 550;
+  letter-spacing: 0.01em;
+  color: var(--text-primary);
+}
+
+::selection {
+  background: rgba(31, 78, 156, 0.16);
+}
+
+/* ============================================================
+   FORMULARIOS
+   ============================================================ */
+
+input, select, textarea {
   font-family: var(--font-sans);
   font-size: 14px;
-}
-
-input[type="text"], input[type="email"], input[type="password"], input[type="date"], input[type="time"], input[type="tel"], select, textarea {
-  height: 36px;
-  padding: 0 10px;
-  border-radius: var(--radius);
-  border: 0.5px solid var(--border);
-  background: var(--surface-2);
   color: var(--text-primary);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 9px 12px;
   outline: none;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
 }
 
-textarea {
-  height: auto;
-  padding: 8px 10px;
+input::placeholder, textarea::placeholder {
+  color: var(--text-muted);
+}
+
+input:hover:not(:disabled),
+select:hover:not(:disabled),
+textarea:hover:not(:disabled) {
+  border-color: var(--border-strong);
 }
 
 input:focus, select:focus, textarea:focus {
-  border-color: var(--border-accent);
-  box-shadow: 0 0 0 1px var(--border-accent);
+  border-color: var(--fill-accent);
+  box-shadow: var(--shadow-focus);
 }
 
-button {
-  font-family: var(--font-sans);
+input:disabled, select:disabled, textarea:disabled {
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  cursor: default;
 }
+
+/* Flecha personalizada y sutil para los selectores */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238A94A8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 34px;
+  cursor: pointer;
+}
+
+/* Campos de fecha y hora coherentes con el resto */
+input[type="date"], input[type="time"] {
+  cursor: pointer;
+}
+
+/* ============================================================
+   BOTONES — micro-interacciones
+   (los colores vienen del código; acá solo el comportamiento)
+   ============================================================ */
+
+button {
+  transition: filter 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
+}
+
+button:hover:not(:disabled) {
+  filter: brightness(0.96) saturate(1.05);
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+/* ============================================================
+   DETALLES DE PULIDO
+   ============================================================ */
+
+/* Barra de desplazamiento discreta */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #C9CFDA;
+  border-radius: 8px;
+  border: 2px solid var(--surface-0);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #AEB6C4;
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #C9CFDA transparent;
+}
+
+/* Imágenes de avatar con transición suave al cargar */
+img {
+  transition: opacity 0.2s ease;
+}
+
+/* Ícono girando en los estados de carga (loader-2 de Tabler) */
+.ti-loader-2 {
+  display: inline-block;
+  animation: girar 0.9s linear infinite;
+}
+
+@keyframes girar {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Respeto por quien prefiere menos movimiento */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============================================================
+   MODO OSCURO (OPCIONAL)
+   Si querés que el sistema se adapte al modo oscuro del
+   dispositivo, borrá los marcadores /* y *​/ que envuelven
+   este bloque. Si preferís siempre claro, dejalo como está.
+   ============================================================
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface-0: #12161F;
+    --surface-1: #1A1F2B;
+    --surface-2: #202636;
+
+    --border: #2E3547;
+    --border-strong: #414A61;
+
+    --text-primary: #ECEFF5;
+    --text-secondary: #B4BCCC;
+    --text-muted: #7C8598;
+
+    --fill-accent: #4A7FD4;
+    --on-accent: #FFFFFF;
+    --bg-accent: #22314D;
+    --text-accent: #9FBFF0;
+    --border-accent: #3A5583;
+
+    --bg-success: #1B3229;
+    --text-success: #7FD1AB;
+    --border-success: #2E5945;
+
+    --bg-danger: #3A2326;
+    --text-danger: #F0A0A5;
+    --border-danger: #6B3A3F;
+
+    --bg-warning: #38301B;
+    --text-warning: #E4C878;
+    --border-warning: #6B5A2C;
+
+    --bg-pro: #2A2440;
+    --text-pro: #BBA5F2;
+    --border-pro: #4A3E75;
+
+    --shadow-focus: 0 0 0 3px rgba(74, 127, 212, 0.3);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #414A61;
+    border-color: var(--surface-0);
+  }
+}
+
+============================================================ */

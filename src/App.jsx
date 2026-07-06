@@ -1,4 +1,4 @@
-// ===========================================================
+// ============================================================
 // SISTEMA DE GESTIÓN IGLESIA
 // Stack: React + Supabase (PostgreSQL + Auth + Storage)
 // ============================================================
@@ -16,514 +16,6 @@ import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
-
-
-// ─────────────────────────────────────────────────────────────
-// MÓDULO LEGAJOS
-// Pegar este bloque completo en tu archivo principal, ANTES de
-// la sección "APP PRINCIPAL". Usa los componentes y helpers que
-// ya existen en tu archivo (sb, useApp, Btn, Badge, Modal, Inp,
-// Sel, Avatar, Spinner, SectionHeader, fmtDate, today, calcAge,
-// canDo, useIsMobile). No requiere imports nuevos.
-// ─────────────────────────────────────────────────────────────
-
-const TIPOS_EVENTO = [
-  { val: "bautismo",       label: "Bautismo",             icon: "droplet",        role: "accent" },
-  { val: "presentacion",   label: "Presentación",         icon: "baby-carriage",  role: "success" },
-  { val: "matrimonio",     label: "Matrimonio",           icon: "heart",          role: "danger" },
-  { val: "ordenacion",     label: "Ordenación",           icon: "certificate",    role: "warning" },
-  { val: "traslado",       label: "Traslado",             icon: "arrows-exchange", role: "pro" },
-  { val: "reconocimiento", label: "Reconocimiento",       icon: "award",          role: "success" },
-  { val: "disciplina",     label: "Disciplina pastoral",  icon: "gavel",          role: "danger" },
-  { val: "otro",           label: "Otro",                 icon: "bookmark",       role: "accent" },
-];
-
-// Sube un archivo al bucket "legajos" de Supabase Storage
-async function subirDocLegajo(file, miembroId) {
-  const path = `${miembroId}/${Date.now()}_${file.name.replace(/\s/g, "_")}`;
-  const r = await fetch(`${sb.url}/storage/v1/object/legajos/${path}`, {
-    method: "POST",
-    headers: { apikey: sb.key, Authorization: `Bearer ${sb.authToken || sb.key}`, "Content-Type": file.type },
-    body: file,
-  });
-  if (r.ok) return `${sb.url}/storage/v1/object/public/legajos/${path}`;
-  const e = await r.json().catch(() => ({}));
-  throw new Error(e.message || "Error al subir el archivo. ¿Existe el bucket 'legajos'?");
-}
-
-function ModuloLegajos() {
-  const { usuario, toast } = useApp();
-  const isMobile = useIsMobile();
-  const canEdit = canDo(usuario, "miembros");
-
-  // Búsqueda de miembro (mismo patrón que Historial)
-  const [busqueda, setBusqueda] = useState("");
-  const [sugerencias, setSugerencias] = useState([]);
-  const [buscando, setBuscando] = useState(false);
-  const [miembro, setMiembro] = useState(null);
-
-  // Datos del legajo
-  const [tab, setTab] = useState("trayectoria");
-  const [loading, setLoading] = useState(false);
-  const [hCargos, setHCargos] = useState([]);
-  const [hGrupos, setHGrupos] = useState([]);
-  const [eventos, setEventos] = useState([]);
-  const [documentos, setDocumentos] = useState([]);
-
-  // Catálogos para asignar
-  const [cargos, setCargos] = useState([]);
-  const [grupos, setGrupos] = useState([]);
-
-  // Modales
-  const [modalAsignar, setModalAsignar] = useState(null); // {tipo: "cargo"|"grupo"}
-  const [modalEvento, setModalEvento] = useState(false);
-  const [subiendo, setSubiendo] = useState(false);
-  const fileRef = useRef();
-
-  useEffect(() => {
-    Promise.all([
-      sb.query("cargos", "?activo=eq.true&order=nombre"),
-      sb.query("grupos", "?activo=eq.true&order=nombre"),
-    ]).then(([cs, gs]) => { setCargos(cs); setGrupos(gs); }).catch(() => {});
-  }, []);
-
-  // Autocompletar buscador
-  useEffect(() => {
-    if (busqueda.length < 2 || miembro) { setSugerencias([]); return; }
-    const t = setTimeout(async () => {
-      setBuscando(true);
-      try {
-        const q = encodeURIComponent(busqueda.toLowerCase());
-        const ms = await sb.query("miembros",
-          `?or=(nombres.ilike.*${q}*,apellidos.ilike.*${q}*,cedula.ilike.*${q}*)&select=id,nombres,apellidos,foto_url,estado,fecha_nacimiento,fecha_ingreso,numero_membresia,templos(nombre)&order=apellidos.asc&limit=8`
-        );
-        setSugerencias(ms);
-      } catch {}
-      finally { setBuscando(false); }
-    }, 350);
-    return () => clearTimeout(t);
-  }, [busqueda, miembro]);
-
-  const seleccionar = (m) => {
-    setMiembro(m);
-    setBusqueda(`${m.apellidos}, ${m.nombres}`);
-    setSugerencias([]);
-    cargarLegajo(m.id);
-  };
-
-  const cargarLegajo = async (id) => {
-    setLoading(true);
-    try {
-      const [mc, mg, evs, docs] = await Promise.all([
-        sb.query("miembro_cargos", `?miembro_id=eq.${id}&select=*,cargos(nombre)&order=fecha_inicio.desc.nullslast`),
-        sb.query("miembro_grupos", `?miembro_id=eq.${id}&select=*,grupos(nombre)&order=fecha_inicio.desc.nullslast`),
-        sb.query("legajo_eventos", `?miembro_id=eq.${id}&select=*,usuarios_sistema(nombre)&order=fecha.desc.nullslast`),
-        sb.query("legajo_documentos", `?miembro_id=eq.${id}&select=*,usuarios_sistema(nombre)&order=created_at.desc`),
-      ]);
-      setHCargos(mc); setHGrupos(mg); setEventos(evs); setDocumentos(docs);
-    } catch (e) { toast(e.message, "error"); }
-    finally { setLoading(false); }
-  };
-
-  // Finalizar una asignación (cargo o grupo) sin borrar la fila
-  const finalizarAsignacion = async (tabla, item) => {
-    try {
-      await sb.update(tabla, item.id, { activo: false, fecha_fin: today() });
-      toast("Asignación finalizada ✓", "ok");
-      cargarLegajo(miembro.id);
-    } catch (e) { toast(e.message, "error"); }
-  };
-
-  // Subir documento
-  const handleDoc = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (file.size > 10 * 1024 * 1024) { toast("El archivo supera los 10 MB", "warn"); return; }
-    setSubiendo(true);
-    try {
-      const url = await subirDocLegajo(file, miembro.id);
-      await sb.insert("legajo_documentos", {
-        miembro_id: miembro.id, nombre: file.name, url,
-        tipo_archivo: file.type || null, subido_por: usuario?.id,
-      });
-      toast("Documento subido ✓", "ok");
-      cargarLegajo(miembro.id);
-    } catch (err) { toast(err.message, "error"); }
-    finally { setSubiendo(false); e.target.value = ""; }
-  };
-
-  const eliminarDoc = async (d) => {
-    if (!window.confirm(`¿Eliminar "${d.nombre}" del legajo?`)) return;
-    try {
-      await sb.delete("legajo_documentos", d.id);
-      toast("Documento eliminado", "ok");
-      cargarLegajo(miembro.id);
-    } catch (e) { toast(e.message, "error"); }
-  };
-
-  const eliminarEvento = async (ev) => {
-    if (!window.confirm(`¿Eliminar el hito "${ev.titulo}"?`)) return;
-    try {
-      await sb.delete("legajo_eventos", ev.id);
-      toast("Hito eliminado", "ok");
-      cargarLegajo(miembro.id);
-    } catch (e) { toast(e.message, "error"); }
-  };
-
-  const TABS = [
-    { id: "trayectoria", label: "Trayectoria", icon: "route" },
-    { id: "hitos", label: "Hitos", icon: "timeline-event" },
-    { id: "documentos", label: "Documentos", icon: "files" },
-  ];
-
-  // ── Sub-render: lista de asignaciones (cargos o grupos) ────
-  const ListaAsignaciones = ({ items, tabla, nombreCampo, tituloSingular, role }) => {
-    const activos = items.filter(i => i.activo && !i.fecha_fin);
-    const historicos = items.filter(i => !i.activo || i.fecha_fin);
-    return (
-      <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-          <div style={{ fontSize: 14, fontWeight: 500 }}>
-            {tituloSingular === "cargo" ? "Cargos" : "Grupos"}
-            <span style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 400 }}> · {activos.length} activo(s)</span>
-          </div>
-          {canEdit && (
-            <Btn small icon="plus" variant="primary" onClick={() => setModalAsignar({ tipo: tituloSingular })}>
-              Asignar
-            </Btn>
-          )}
-        </div>
-
-        {activos.length === 0 && historicos.length === 0 && (
-          <div style={{ fontSize: 13, color: "var(--text-muted)", padding: "12px 0" }}>Sin asignaciones registradas. Usá "Asignar" para agregar la primera.</div>
-        )}
-
-        {activos.map(i => (
-          <div key={i.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10, background: `var(--bg-${role})`, border: `0.5px solid var(--border-${role})`, marginBottom: 8, flexWrap: "wrap" }}>
-            <div style={{ flex: 1, minWidth: 140 }}>
-              <div style={{ fontSize: 14, fontWeight: 500, color: `var(--text-${role})` }}>{i[nombreCampo]?.nombre || "—"}</div>
-              <div style={{ fontSize: 12, color: `var(--text-${role})`, opacity: 0.85 }}>
-                Desde {fmtDate(i.fecha_inicio)}{i.observacion ? ` · ${i.observacion}` : ""}
-              </div>
-            </div>
-            {canEdit && (
-              <Btn small variant="secondary" icon="player-stop" onClick={() => finalizarAsignacion(tabla, i)}>Finalizar</Btn>
-            )}
-          </div>
-        ))}
-
-        {historicos.length > 0 && (
-          <>
-            <div style={{ fontSize: 12, color: "var(--text-muted)", margin: "12px 0 8px", fontWeight: 500 }}>Historial anterior</div>
-            {historicos.map(i => (
-              <div key={i.id} style={{ padding: "8px 12px", borderRadius: 10, background: "var(--surface-1)", marginBottom: 6, opacity: 0.8 }}>
-                <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-secondary)" }}>{i[nombreCampo]?.nombre || "—"}</div>
-                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                  {fmtDate(i.fecha_inicio)} → {fmtDate(i.fecha_fin)}{i.observacion ? ` · ${i.observacion}` : ""}
-                </div>
-              </div>
-            ))}
-          </>
-        )}
-      </div>
-    );
-  };
-
-  return (
-    <div>
-      <SectionHeader title="Legajos de miembros" icon="folder-open" role="pro" />
-
-      {/* Buscador */}
-      <div style={{ position: "relative", maxWidth: 480, marginBottom: 24 }}>
-        <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 6 }}>
-          Buscar miembro por nombre o cédula
-        </label>
-        <div style={{ position: "relative" }}>
-          <input
-            value={busqueda}
-            onChange={e => { setBusqueda(e.target.value); setMiembro(null); }}
-            placeholder="Escribí al menos 2 caracteres..."
-            style={{ width: "100%", boxSizing: "border-box", paddingRight: 36 }}
-          />
-          <i className={`ti ti-${buscando ? "loader-2" : "search"}`} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)", fontSize: 16, pointerEvents: "none" }} />
-        </div>
-        {sugerencias.length > 0 && (
-          <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 100, overflow: "hidden", marginTop: 4 }}>
-            {sugerencias.map(m => (
-              <button key={m.id} onClick={() => seleccionar(m)} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "10px 14px", border: "none", background: "transparent", cursor: "pointer", fontFamily: "var(--font-sans)", textAlign: "left", borderBottom: "0.5px solid var(--border)" }}
-                onMouseEnter={e => e.currentTarget.style.background = "var(--surface-1)"}
-                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                <Avatar foto={m.foto_url} nombre={`${m.nombres} ${m.apellidos}`} size={32} />
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>{m.apellidos}, {m.nombres}</div>
-                  <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{m.templos?.nombre || "Sin templo"}</div>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {!miembro && (
-        <div style={{ textAlign: "center", padding: "56px 0", color: "var(--text-muted)" }}>
-          <i className="ti ti-folder-open" style={{ fontSize: 44, display: "block", marginBottom: 12 }} />
-          <div style={{ fontSize: 15, fontWeight: 500, color: "var(--text-secondary)", marginBottom: 6 }}>Buscá un miembro para abrir su legajo</div>
-          <div style={{ fontSize: 13 }}>Trayectoria de cargos y grupos, hitos espirituales y documentos</div>
-        </div>
-      )}
-
-      {miembro && (
-        <>
-          {/* Cabecera del legajo */}
-          <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 18, marginBottom: 16, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-            <Avatar foto={miembro.foto_url} nombre={`${miembro.nombres} ${miembro.apellidos}`} size={56} />
-            <div style={{ flex: 1, minWidth: 180 }}>
-              <div style={{ fontSize: 17, fontWeight: 500, marginBottom: 4 }}>{miembro.apellidos}, {miembro.nombres}</div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", fontSize: 12, color: "var(--text-muted)" }}>
-                <Badge label={miembro.estado} />
-                {miembro.numero_membresia && <span>N° {miembro.numero_membresia}</span>}
-                {miembro.fecha_ingreso && <span>Ingreso: {fmtDate(miembro.fecha_ingreso)}</span>}
-                {miembro.fecha_nacimiento && <span>{calcAge(miembro.fecha_nacimiento)} años</span>}
-                {miembro.templos?.nombre && <span>{miembro.templos.nombre}</span>}
-              </div>
-            </div>
-          </div>
-
-          {/* Tabs */}
-          <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
-            {TABS.map(t => (
-              <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "7px 14px", borderRadius: 8, border: `0.5px solid ${tab === t.id ? "var(--border-pro)" : "var(--border)"}`, background: tab === t.id ? "var(--bg-pro)" : "transparent", color: tab === t.id ? "var(--text-pro)" : "var(--text-secondary)", fontSize: 13, fontFamily: "var(--font-sans)", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
-                <i className={`ti ti-${t.icon}`} style={{ fontSize: 14 }} aria-hidden />
-                {t.label}
-                {t.id === "hitos" && eventos.length > 0 && <span style={{ fontSize: 11, opacity: 0.7 }}>({eventos.length})</span>}
-                {t.id === "documentos" && documentos.length > 0 && <span style={{ fontSize: 11, opacity: 0.7 }}>({documentos.length})</span>}
-              </button>
-            ))}
-          </div>
-
-          {loading ? <Spinner /> : (
-            <>
-              {/* TAB TRAYECTORIA */}
-              {tab === "trayectoria" && (
-                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
-                  <ListaAsignaciones items={hCargos} tabla="miembro_cargos" nombreCampo="cargos" tituloSingular="cargo" role="accent" />
-                  <ListaAsignaciones items={hGrupos} tabla="miembro_grupos" nombreCampo="grupos" tituloSingular="grupo" role="success" />
-                </div>
-              )}
-
-              {/* TAB HITOS */}
-              {tab === "hitos" && (
-                <div>
-                  {canEdit && (
-                    <div style={{ marginBottom: 16 }}>
-                      <Btn icon="plus" variant="primary" small onClick={() => setModalEvento(true)}>Agregar hito</Btn>
-                    </div>
-                  )}
-                  {eventos.length === 0 ? (
-                    <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-muted)", fontSize: 13 }}>
-                      <i className="ti ti-timeline-event" style={{ fontSize: 36, display: "block", marginBottom: 10 }} />
-                      Sin hitos registrados. Registrá bautismos, presentaciones, matrimonios y más.
-                    </div>
-                  ) : (
-                    <div style={{ position: "relative", paddingLeft: 22 }}>
-                      {/* línea vertical */}
-                      <div style={{ position: "absolute", left: 8, top: 8, bottom: 8, width: 2, background: "var(--border)" }} />
-                      {eventos.map(ev => {
-                        const cfg = TIPOS_EVENTO.find(t => t.val === ev.tipo) || TIPOS_EVENTO[TIPOS_EVENTO.length - 1];
-                        return (
-                          <div key={ev.id} style={{ position: "relative", marginBottom: 14 }}>
-                            <div style={{ position: "absolute", left: -22, top: 14, width: 18, height: 18, borderRadius: "50%", background: `var(--bg-${cfg.role})`, border: `2px solid var(--border-${cfg.role})`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                              <i className={`ti ti-${cfg.icon}`} style={{ fontSize: 10, color: `var(--text-${cfg.role})` }} aria-hidden />
-                            </div>
-                            <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: "12px 16px", marginLeft: 8 }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
-                                <Badge label={cfg.label} role={cfg.role} />
-                                <span style={{ fontSize: 13, fontWeight: 500 }}>{ev.titulo}</span>
-                                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{ev.fecha ? fmtDate(ev.fecha) : "Sin fecha"}</span>
-                                {canEdit && (
-                                  <button onClick={() => eliminarEvento(ev)} title="Eliminar hito" style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: 2 }}>
-                                    <i className="ti ti-trash" style={{ fontSize: 14 }} aria-hidden />
-                                  </button>
-                                )}
-                              </div>
-                              {ev.descripcion && <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 }}>{ev.descripcion}</div>}
-                              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>
-                                Registrado por {ev.usuarios_sistema?.nombre || "sistema"}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* TAB DOCUMENTOS */}
-              {tab === "documentos" && (
-                <div>
-                  {canEdit && (
-                    <div style={{ marginBottom: 16 }}>
-                      <input type="file" ref={fileRef} style={{ display: "none" }} onChange={handleDoc}
-                        accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx" />
-                      <Btn icon="upload" variant="primary" small loading={subiendo} onClick={() => fileRef.current.click()}>
-                        {subiendo ? "Subiendo..." : "Subir documento"}
-                      </Btn>
-                      <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: 10 }}>PDF, imágenes o Word · máx. 10 MB</span>
-                    </div>
-                  )}
-                  {documentos.length === 0 ? (
-                    <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-muted)", fontSize: 13 }}>
-                      <i className="ti ti-files" style={{ fontSize: 36, display: "block", marginBottom: 10 }} />
-                      Sin documentos. Subí certificados de bautismo, actas o cartas de traslado.
-                    </div>
-                  ) : (
-                    <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
-                      {documentos.map((d, i) => (
-                        <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: i < documentos.length - 1 ? "0.5px solid var(--border)" : "none", flexWrap: "wrap" }}>
-                          <i className={`ti ti-${d.tipo_archivo?.includes("pdf") ? "file-type-pdf" : d.tipo_archivo?.includes("image") ? "photo" : "file-text"}`} style={{ fontSize: 22, color: "var(--text-pro)", flexShrink: 0 }} aria-hidden />
-                          <div style={{ flex: 1, minWidth: 160 }}>
-                            <div style={{ fontSize: 14, fontWeight: 500, wordBreak: "break-word" }}>{d.nombre}</div>
-                            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                              {new Date(d.created_at).toLocaleDateString("es-ES")} · {d.usuarios_sistema?.nombre || "sistema"}
-                            </div>
-                          </div>
-                          <div style={{ display: "flex", gap: 6 }}>
-                            <Btn small icon="external-link" onClick={() => window.open(d.url, "_blank")}>Abrir</Btn>
-                            {canEdit && <Btn small variant="danger" icon="trash" onClick={() => eliminarDoc(d)} />}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-        </>
-      )}
-
-      {/* Modal asignar cargo/grupo */}
-      {modalAsignar && (
-        <ModalAsignarLegajo
-          tipo={modalAsignar.tipo}
-          catalogo={modalAsignar.tipo === "cargo" ? cargos : grupos}
-          existentes={modalAsignar.tipo === "cargo" ? hCargos : hGrupos}
-          miembro={miembro}
-          onClose={() => setModalAsignar(null)}
-          onSaved={() => { setModalAsignar(null); cargarLegajo(miembro.id); }}
-        />
-      )}
-
-      {/* Modal nuevo hito */}
-      {modalEvento && (
-        <ModalHitoLegajo
-          miembro={miembro}
-          usuario={usuario}
-          onClose={() => setModalEvento(false)}
-          onSaved={() => { setModalEvento(false); cargarLegajo(miembro.id); }}
-        />
-      )}
-    </div>
-  );
-}
-
-// Modal para asignar un cargo o grupo con fecha de inicio
-function ModalAsignarLegajo({ tipo, catalogo, existentes, miembro, onClose, onSaved }) {
-  const { toast } = useApp();
-  const [itemId, setItemId] = useState("");
-  const [fechaInicio, setFechaInicio] = useState(today());
-  const [obs, setObs] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  const idsActivos = existentes.filter(i => i.activo && !i.fecha_fin)
-    .map(i => tipo === "cargo" ? i.cargo_id : i.grupo_id);
-  const disponibles = catalogo.filter(c => !idsActivos.includes(c.id));
-
-  const guardar = async () => {
-    if (!itemId) { toast(`Seleccioná el ${tipo}`, "warn"); return; }
-    setSaving(true);
-    try {
-      const payload = {
-        miembro_id: miembro.id,
-        activo: true,
-        fecha_inicio: fechaInicio,
-        observacion: obs.trim() || null,
-      };
-      if (tipo === "cargo") payload.cargo_id = itemId; else payload.grupo_id = itemId;
-      await sb.insert(tipo === "cargo" ? "miembro_cargos" : "miembro_grupos", payload);
-      toast(`${tipo === "cargo" ? "Cargo" : "Grupo"} asignado ✓`, "ok");
-      onSaved();
-    } catch (e) { toast(e.message, "error"); }
-    finally { setSaving(false); }
-  };
-
-  return (
-    <Modal title={`Asignar ${tipo}`} onClose={onClose}>
-      <Sel label={tipo === "cargo" ? "Cargo *" : "Grupo *"} value={itemId} onChange={e => setItemId(e.target.value)}>
-        <option value="">— Seleccionar —</option>
-        {disponibles.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-      </Sel>
-      <Inp label="Fecha de inicio" type="date" value={fechaInicio} onChange={e => setFechaInicio(e.target.value)} />
-      <Inp label="Observación (opcional)" value={obs} onChange={e => setObs(e.target.value)} placeholder="Ej: Nombrado en asamblea anual" />
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-        <Btn onClick={onClose}>Cancelar</Btn>
-        <Btn variant="primary" icon="device-floppy" loading={saving} onClick={guardar}>
-          {saving ? "Guardando..." : "Guardar"}
-        </Btn>
-      </div>
-    </Modal>
-  );
-}
-
-// Modal para agregar un hito al legajo
-function ModalHitoLegajo({ miembro, usuario, onClose, onSaved }) {
-  const { toast } = useApp();
-  const [form, setForm] = useState({ tipo: "bautismo", fecha: today(), titulo: "", descripcion: "" });
-  const [saving, setSaving] = useState(false);
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-
-  const guardar = async () => {
-    if (!form.titulo.trim()) { toast("El título es requerido", "warn"); return; }
-    setSaving(true);
-    try {
-      await sb.insert("legajo_eventos", {
-        miembro_id: miembro.id,
-        tipo: form.tipo,
-        fecha: form.fecha || null,
-        titulo: form.titulo.trim(),
-        descripcion: form.descripcion.trim() || null,
-        created_by: usuario?.id,
-      });
-      toast("Hito registrado ✓", "ok");
-      onSaved();
-    } catch (e) { toast(e.message, "error"); }
-    finally { setSaving(false); }
-  };
-
-  return (
-    <Modal title="Agregar hito al legajo" onClose={onClose}>
-      <Sel label="Tipo de hito" value={form.tipo} onChange={e => set("tipo", e.target.value)}>
-        {TIPOS_EVENTO.map(t => <option key={t.val} value={t.val}>{t.label}</option>)}
-      </Sel>
-      <Inp label="Título *" value={form.titulo} onChange={e => set("titulo", e.target.value)} placeholder="Ej: Bautismo en aguas" />
-      <Inp label="Fecha" type="date" value={form.fecha} onChange={e => set("fecha", e.target.value)} />
-      <div style={{ marginBottom: 14 }}>
-        <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 4 }}>Descripción</label>
-        <textarea value={form.descripcion} onChange={e => set("descripcion", e.target.value)} rows={3} placeholder="Detalles del evento..." style={{ width: "100%", boxSizing: "border-box", resize: "vertical", borderRadius: 8, border: "0.5px solid var(--border)", padding: "8px 10px", fontSize: 14, fontFamily: "var(--font-sans)", background: "var(--surface-2)", color: "var(--text-primary)" }} />
-      </div>
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-        <Btn onClick={onClose}>Cancelar</Btn>
-        <Btn variant="primary" icon="device-floppy" loading={saving} onClick={guardar}>
-          {saving ? "Guardando..." : "Guardar"}
-        </Btn>
-      </div>
-    </Modal>
-  );
-}
-
-
-
 
 // ── SUPABASE CONFIG ──────────────────────────────────────────
 const SUPABASE_URL = "https://yaywdqnatifscsyeobsg.supabase.co";
@@ -825,7 +317,6 @@ const NAV_ITEMS = [
   { id: "miembros", icon: "users", label: "Miembros", perm: "miembros", role: "pro" },
   { id: "asistencia", icon: "clipboard-check", label: "Asistencia", perm: "asistencia", role: "success" },
   { id: "historial", icon: "user-search", label: "Historial", perm: "asistencia", role: "warning" },
-  { id: "legajos", icon: "folder-open", label: "Legajos", perm: "miembros", role: "pro" },
   { id: "tareas", icon: "checklist", label: "Tareas", perm: "asistencia", role: "danger" },
   { id: "reportes", icon: "chart-bar", label: "Reportes", perm: "reportes", role: "danger" },
   { id: "config", icon: "settings", label: "Configuración", perm: "config", role: "accent" },
@@ -1310,34 +801,21 @@ function ModalMiembro({ mode, data, templos, cargos, grupos, onClose, onSaved })
       if (mode === "new") {
         const res = await sb.insert("miembros", payload);
         miembroId = res[0]?.id;
-        } else {
+      } else {
         await sb.update("miembros", miembroId, payload);
+        // Eliminar cargos y grupos actuales
+        await fetch(`${sb.url}/rest/v1/miembro_cargos?miembro_id=eq.${miembroId}`, { method: "DELETE", headers: sb.headers({ Prefer: "" }) });
+        await fetch(`${sb.url}/rest/v1/miembro_grupos?miembro_id=eq.${miembroId}`, { method: "DELETE", headers: sb.headers({ Prefer: "" }) });
       }
 
-      // Sincronizar cargos y grupos SIN borrar historial:
-      // los quitados se cierran con fecha_fin; los nuevos se insertan.
-      const sincronizar = async (tabla, campoId, seleccionados, previos) => {
-        const activosPrevios = (previos || []).filter(x => x.activo);
-        const idsPrevios = activosPrevios.map(x => x[campoId.replace("_id", "s")]?.id).filter(Boolean);
-
-        // Cerrar los que ya no están seleccionados
-        for (const prev of activosPrevios) {
-          const cid = prev[campoId.replace("_id", "s")]?.id;
-          if (cid && !seleccionados.includes(cid)) {
-            await sb.update(tabla, prev.id, { activo: false, fecha_fin: today() });
-          }
-        }
-        // Insertar los nuevos
-        const nuevos = seleccionados.filter(cid => !idsPrevios.includes(cid));
-        if (nuevos.length > 0) {
-          await sb.insert(tabla, nuevos.map(cid => ({
-            miembro_id: miembroId, [campoId]: cid, activo: true, fecha_inicio: today(),
-          })));
-        }
-      };
-
-      await sincronizar("miembro_cargos", "cargo_id", cargosSeleccionados, data?.miembro_cargos);
-      await sincronizar("miembro_grupos", "grupo_id", gruposSeleccionados, data?.miembro_grupos);
+      // Insertar cargos seleccionados
+      if (cargosSeleccionados.length > 0) {
+        await sb.insert("miembro_cargos", cargosSeleccionados.map(cid => ({ miembro_id: miembroId, cargo_id: cid, activo: true })));
+      }
+      // Insertar grupos seleccionados
+      if (gruposSeleccionados.length > 0) {
+        await sb.insert("miembro_grupos", gruposSeleccionados.map(gid => ({ miembro_id: miembroId, grupo_id: gid, activo: true })));
+      }
 
       toast(mode === "new" ? "Miembro registrado ✓" : "Miembro actualizado ✓", "ok");
       onSaved();
@@ -1570,10 +1048,84 @@ function ModuloAsistencia() {
         registrado_por: sb.userId,
         updated_at: new Date().toISOString(),
       }));
-      await sb.upsert("asistencia", registros, "reunion_id,miembro_id");
-      toast(`Asistencia guardada: ${miembros.length} miembro(s) ✓`, "ok");
-    } catch (e) { toast(e.message, "error"); }
+
+      if (!navigator.onLine) {
+        // Sin internet: guardar en IndexedDB para sincronizar después
+        await guardarOffline(registros);
+        toast(`Asistencia guardada sin conexión (${miembros.length} miembro(s)) — se sincronizará al volver la señal 📶`, "warn");
+      } else {
+        await sb.upsert("asistencia", registros, "reunion_id,miembro_id");
+        // Si hay datos pendientes offline, sincronizarlos también
+        await sincronizarOffline();
+        toast(`Asistencia guardada: ${miembros.length} miembro(s) ✓`, "ok");
+      }
+    } catch (e) {
+      // Si falla por error de red, guardar offline
+      if (!navigator.onLine || e.message?.includes("fetch")) {
+        const registros = Object.entries(asistenciaLocal).map(([miembro_id, estado]) => ({
+          reunion_id: reunionActiva.id, miembro_id, estado,
+          registrado_por: sb.userId, updated_at: new Date().toISOString(),
+        }));
+        await guardarOffline(registros);
+        toast("Sin conexión — guardado localmente, se sincronizará automáticamente 📶", "warn");
+      } else {
+        toast(e.message, "error");
+      }
+    }
     finally { setGuardando(false); }
+  };
+
+  // Guardar asistencia en IndexedDB cuando no hay internet
+  const guardarOffline = async (registros) => {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open("iglesia-offline", 1);
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains("pendientes")) {
+          db.createObjectStore("pendientes", { keyPath: "id", autoIncrement: true });
+        }
+      };
+      req.onsuccess = (e) => {
+        const db = e.target.result;
+        const tx = db.transaction("pendientes", "readwrite");
+        const store = tx.objectStore("pendientes");
+        const payload = {
+          url: `${sb.url}/rest/v1/asistencia?on_conflict=reunion_id,miembro_id`,
+          method: "POST",
+          headers: JSON.stringify(sb.headers({ Prefer: "resolution=merge-duplicates,return=representation" })),
+          body: JSON.stringify(registros),
+          guardado_at: new Date().toISOString(),
+        };
+        store.add(payload);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      };
+      req.onerror = () => reject(req.error);
+    });
+  };
+
+  // Sincronizar datos guardados offline cuando hay internet
+  const sincronizarOffline = async () => {
+    try {
+      const req = indexedDB.open("iglesia-offline", 1);
+      req.onsuccess = async (e) => {
+        const db = e.target.result;
+        const tx = db.transaction("pendientes", "readwrite");
+        const store = tx.objectStore("pendientes");
+        const todos = await new Promise((res) => { const r = store.getAll(); r.onsuccess = () => res(r.result); });
+        for (const item of todos) {
+          try {
+            const resp = await fetch(item.url, {
+              method: item.method,
+              headers: JSON.parse(item.headers),
+              body: item.body,
+            });
+            if (resp.ok) store.delete(item.id);
+          } catch {}
+        }
+        if (todos.length > 0) toast(`${todos.length} registro(s) offline sincronizado(s) ✓`, "ok");
+      };
+    } catch {}
   };
 
   const cerrarSesion = () => { setSesionAbierta(false); setReunionActiva(null); setMiembros([]); setAsistenciaLocal({}); };
@@ -2809,9 +2361,36 @@ export default function App() {
   const [toastData, setToastData] = useState(null);
   const [checkingSession, setCheckingSession] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
   const isMobile = useIsMobile();
 
   const toast = useCallback((msg, type = "ok") => setToastData({ msg, type, key: Date.now() }), []);
+
+  // Registrar Service Worker y detectar conexión
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js")
+        .then(reg => {
+          // Cuando vuelve la señal, sincronizar automáticamente
+          window.addEventListener("online", () => {
+            setIsOnline(true);
+            if ("sync" in reg) {
+              reg.sync.register("sync-asistencia").catch(() => {});
+            }
+            // Trigger manual sync
+            navigator.serviceWorker.controller?.postMessage({ type: "SYNC_NOW" });
+          });
+          window.addEventListener("offline", () => setIsOnline(false));
+        })
+        .catch(() => {});
+    }
+    // También detectar cambios de conexión sin SW
+    const goOnline = () => setIsOnline(true);
+    const goOffline = () => setIsOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => { window.removeEventListener("online", goOnline); window.removeEventListener("offline", goOffline); };
+  }, []);
 
   useEffect(() => {
     const ok = sb.restoreSession();
@@ -2835,21 +2414,28 @@ export default function App() {
   );
 
   if (!usuario) return (
-    <AppCtx.Provider value={{ usuario: null, toast }}>
+    <AppCtx.Provider value={{ usuario: null, toast, isOnline }}>
       <LoginPage onLogin={setUsuario} />
       {toastData && <Toast key={toastData.key} msg={toastData.msg} type={toastData.type} onClose={() => setToastData(null)} />}
     </AppCtx.Provider>
   );
 
-  const PAGES = { dashboard: Dashboard, miembros: ModuloMiembros, asistencia: ModuloAsistencia, historial: ModuloHistorial, legajos: ModuloLegajos, tareas: ModuloTareas, reportes: ModuloReportes, config: ModuloConfig };
+  const PAGES = { dashboard: Dashboard, miembros: ModuloMiembros, asistencia: ModuloAsistencia, historial: ModuloHistorial, tareas: ModuloTareas, reportes: ModuloReportes, config: ModuloConfig };
   const PageComp = PAGES[page] || Dashboard;
   const currentNav = NAV_ITEMS.find(n => n.id === page);
 
   return (
-    <AppCtx.Provider value={{ usuario, toast }}>
+    <AppCtx.Provider value={{ usuario, toast, isOnline }}>
       <div style={{ display: "flex", minHeight: "100vh", background: "var(--surface-0)" }}>
         <Sidebar active={page} onChange={handlePageChange} usuario={usuario} onLogout={handleLogout} isMobile={isMobile} isOpen={menuOpen} onCloseMenu={() => setMenuOpen(false)} />
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+          {/* Banner sin internet */}
+          {!isOnline && (
+            <div style={{ background: "var(--bg-warning)", borderBottom: "0.5px solid var(--border-warning)", padding: "8px 16px", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text-warning)" }}>
+              <i className="ti ti-wifi-off" style={{ fontSize: 16 }} />
+              <strong>Sin conexión</strong> — Podés tomar asistencia, se sincronizará automáticamente cuando vuelva la señal.
+            </div>
+          )}
           {isMobile && (
             <div style={{ position: "sticky", top: 0, zIndex: 900, background: "var(--surface-2)", borderBottom: "0.5px solid var(--border)", padding: "12px 16px", display: "flex", alignItems: "center", gap: 12 }}>
               <button onClick={() => setMenuOpen(true)} aria-label="Abrir menú" style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: "var(--text-primary)", display: "flex" }}>
