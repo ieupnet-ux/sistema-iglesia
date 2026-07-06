@@ -1938,7 +1938,7 @@ function ModuloTareas() {
   const [filtroPrioridad, setFiltroPrioridad] = useState("");
   const [filtroMiembro, setFiltroMiembro] = useState("");
   const [busqueda, setBusqueda] = useState("");
-  const [filtroDesde, setFiltroDesde] = useState("");
+  const [filtroDesde, setFiltroDesde] = useState(today());
   const [filtroHasta, setFiltroHasta] = useState("");
 
   const ESTADOS = [
