@@ -2089,10 +2089,13 @@ function ModuloTareas() {
                   {ev && <Badge label="VENCIDA" role="danger" />}
                   {t.fecha_vencimiento && <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Vence: {fmtDate(t.fecha_vencimiento)}</span>}
                 </div>
-                <div style={{ display: "flex", gap: 8, paddingTop: 10, borderTop: "0.5px solid var(--border)" }}>
+                <div style={{ display: "flex", gap: 8, paddingTop: 10, borderTop: "0.5px solid var(--border)", flexWrap: "wrap" }}>
                   <Btn small icon="eye" onClick={() => setModal({ mode: "view", data: t })} style={{ flex: 1, justifyContent: "center" }}>Ver</Btn>
                   {canEdit && <Btn small icon="edit" onClick={() => setModal({ mode: "edit", data: t })} style={{ flex: 1, justifyContent: "center" }}>Editar</Btn>}
                   {canEdit && <Btn small icon="file-text" variant="success" onClick={() => setModal({ mode: "reporte", data: t })} style={{ flex: 1, justifyContent: "center" }}>Reporte</Btn>}
+                  {canEdit && t.estado !== "completada" && t.estado !== "cancelada" && (
+                    <Btn small icon="user-share" variant="warning" onClick={() => setModal({ mode: "reasignar", data: t })} style={{ flex: 1, justifyContent: "center" }}>Reasignar</Btn>
+                  )}
                 </div>
               </div>
             );
@@ -2141,6 +2144,9 @@ function ModuloTareas() {
                         <Btn small icon="eye" onClick={() => setModal({ mode: "view", data: t })} />
                         {canEdit && <Btn small icon="edit" onClick={() => setModal({ mode: "edit", data: t })} />}
                         {canEdit && <Btn small icon="file-text" variant="success" onClick={() => setModal({ mode: "reporte", data: t })} title="Agregar reporte" />}
+                        {canEdit && t.estado !== "completada" && t.estado !== "cancelada" && (
+                          <Btn small icon="user-share" variant="warning" onClick={() => setModal({ mode: "reasignar", data: t })} title="Reasignar tarea" />
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -2182,11 +2188,13 @@ function ModalTarea({ mode, data, miembros, usuario, ESTADOS, PRIORIDADES, onClo
   });
   const [reporteTexto, setReporteTexto] = useState("");
   const [reportes, setReportes] = useState([]);
+  const [reasignaciones, setReasignaciones] = useState([]);
   const [loadingReportes, setLoadingReportes] = useState(false);
 
   useEffect(() => {
     if ((mode === "view" || mode === "reporte") && data?.id) {
       cargarReportes();
+      cargarReasignaciones();
     }
   }, [mode, data]);
 
@@ -2197,6 +2205,15 @@ function ModalTarea({ mode, data, miembros, usuario, ESTADOS, PRIORIDADES, onClo
       setReportes(rs);
     } catch {}
     finally { setLoadingReportes(false); }
+  };
+
+  const cargarReasignaciones = async () => {
+    try {
+      const rs = await sb.query("tarea_reasignaciones",
+        `?tarea_id=eq.${data.id}&select=*,miembro_anterior:miembros!tarea_reasignaciones_miembro_anterior_id_fkey(nombres,apellidos),miembro_nuevo:miembros!tarea_reasignaciones_miembro_nuevo_id_fkey(nombres,apellidos),reasignado_por:usuarios_sistema(nombre)&order=created_at.asc`
+      );
+      setReasignaciones(rs);
+    } catch {}
   };
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -2248,7 +2265,42 @@ function ModalTarea({ mode, data, miembros, usuario, ESTADOS, PRIORIDADES, onClo
     finally { setSaving(false); }
   };
 
-  const titulo = { new: "Nueva tarea", edit: "Editar tarea", view: "Ver tarea", reporte: "Reportes de avance" }[mode];
+  const [reasignarForm, setReasignarForm] = useState({ miembro_nuevo_id: "", motivo: "" });
+
+  const handleReasignar = async () => {
+    if (!reasignarForm.miembro_nuevo_id) { toast("Seleccioná el nuevo miembro", "warn"); return; }
+    if (!reasignarForm.motivo?.trim()) { toast("Indicá el motivo de la reasignación", "warn"); return; }
+    setSaving(true);
+    try {
+      // 1. Registrar el historial de reasignación
+      await sb.insert("tarea_reasignaciones", {
+        tarea_id: data.id,
+        miembro_anterior_id: data.miembro_id,
+        miembro_nuevo_id: reasignarForm.miembro_nuevo_id,
+        motivo: reasignarForm.motivo.trim(),
+        reasignado_por: usuario?.id,
+      });
+      // 2. Actualizar la tarea con el nuevo miembro y estado pendiente
+      await sb.update("tareas", data.id, {
+        miembro_id: reasignarForm.miembro_nuevo_id,
+        estado: "pendiente",
+        updated_at: new Date().toISOString(),
+      });
+      // 3. Agregar reporte automático explicando la reasignación
+      const miembroAnterior = miembros.find(m => m.id === data.miembro_id);
+      const miembroNuevo = miembros.find(m => m.id === reasignarForm.miembro_nuevo_id);
+      await sb.insert("tarea_reportes", {
+        tarea_id: data.id,
+        texto: `🔄 Tarea reasignada de ${miembroAnterior?.nombres} ${miembroAnterior?.apellidos} → ${miembroNuevo?.nombres} ${miembroNuevo?.apellidos}. Motivo: ${reasignarForm.motivo.trim()}`,
+        reportado_por: usuario?.id,
+      });
+      toast("Tarea reasignada con registro histórico ✓", "ok");
+      onSaved();
+    } catch (e) { toast(e.message, "error"); }
+    finally { setSaving(false); }
+  };
+
+  const titulo = { new: "Nueva tarea", edit: "Editar tarea", view: "Ver tarea", reporte: "Reportes de avance", reasignar: "Reasignar tarea" }[mode];
 
   return (
     <Modal title={titulo} onClose={onClose} wide={isReporte || isView}>
@@ -2287,6 +2339,55 @@ function ModalTarea({ mode, data, miembros, usuario, ESTADOS, PRIORIDADES, onClo
         </div>
       )}
 
+      {mode === "reasignar" && data && (
+        <div>
+          {/* Info tarea actual */}
+          <div style={{ background: "var(--bg-warning)", border: "0.5px solid var(--border-warning)", borderRadius: 10, padding: 14, marginBottom: 20 }}>
+            <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-warning)", marginBottom: 6 }}>
+              <i className="ti ti-alert-triangle" style={{ marginRight: 6 }} />
+              Tarea a reasignar
+            </div>
+            <div style={{ fontSize: 14, color: "var(--text-primary)", marginBottom: 4 }}>{data.titulo}</div>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+              Actualmente asignada a: <strong>{data.miembros?.apellidos}, {data.miembros?.nombres}</strong>
+            </div>
+          </div>
+
+          <Sel label="Reasignar a *" value={reasignarForm.miembro_nuevo_id}
+            onChange={e => setReasignarForm(f => ({ ...f, miembro_nuevo_id: e.target.value }))}>
+            <option value="">— Seleccionar nuevo responsable —</option>
+            {miembros.filter(m => m.id !== data.miembro_id).map(m => (
+              <option key={m.id} value={m.id}>{m.apellidos}, {m.nombres}</option>
+            ))}
+          </Sel>
+
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 4 }}>
+              Motivo de la reasignación * <span style={{ fontSize: 11, color: "var(--text-muted)" }}>(queda registrado en el historial)</span>
+            </label>
+            <textarea
+              value={reasignarForm.motivo}
+              onChange={e => setReasignarForm(f => ({ ...f, motivo: e.target.value }))}
+              rows={3}
+              placeholder="Ej: El hermano no pudo completarla por motivos de salud, viaje, etc."
+              style={{ width: "100%", boxSizing: "border-box", resize: "vertical", borderRadius: 8, border: "0.5px solid var(--border)", padding: "8px 10px", fontSize: 14, fontFamily: "var(--font-sans)", background: "var(--surface-2)", color: "var(--text-primary)" }}
+            />
+          </div>
+
+          <div style={{ background: "var(--surface-1)", borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 13, color: "var(--text-muted)" }}>
+            <i className="ti ti-info-circle" style={{ marginRight: 6 }} />
+            Al reasignar: la tarea vuelve a estado <strong>Pendiente</strong>, el motivo queda registrado en el historial de reportes y se puede consultar en cualquier momento.
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+            <Btn onClick={onClose}>Cancelar</Btn>
+            <Btn variant="warning" icon="user-share" loading={saving} onClick={handleReasignar}>
+              {saving ? "Reasignando..." : "Confirmar reasignación"}
+            </Btn>
+          </div>
+        </div>
+      )}
+
       {(isView || isReporte) && data && (
         <div>
           {/* Info de la tarea */}
@@ -2303,6 +2404,32 @@ function ModalTarea({ mode, data, miembros, usuario, ESTADOS, PRIORIDADES, onClo
               {data.notas_internas && <div style={{ gridColumn: "1 / -1" }}><strong>Notas internas:</strong> {data.notas_internas}</div>}
             </div>
           </div>
+
+          {/* Historial de reasignaciones */}
+          {reasignaciones.length > 0 && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 12 }}>
+                <i className="ti ti-user-share" style={{ marginRight: 6, color: "var(--text-warning)" }} />
+                Historial de reasignaciones ({reasignaciones.length})
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {reasignaciones.map((r, i) => (
+                  <div key={r.id} style={{ background: "var(--bg-warning)", border: "0.5px solid var(--border-warning)", borderRadius: 10, padding: "12px 14px" }}>
+                    <div style={{ fontSize: 13, color: "var(--text-warning)", fontWeight: 500, marginBottom: 4 }}>
+                      <i className="ti ti-arrow-right" style={{ marginRight: 4 }} />
+                      {r.miembro_anterior?.nombres} {r.miembro_anterior?.apellidos} → {r.miembro_nuevo?.nombres} {r.miembro_nuevo?.apellidos}
+                    </div>
+                    <div style={{ fontSize: 13, color: "var(--text-primary)", marginBottom: 4 }}>
+                      <strong>Motivo:</strong> {r.motivo}
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                      Reasignada por {r.reasignado_por?.nombre || "Sistema"} — {new Date(r.created_at).toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Reportes de avance */}
           <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 12 }}>
