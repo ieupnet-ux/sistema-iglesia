@@ -318,6 +318,7 @@ const NAV_ITEMS = [
   { id: "asistencia", icon: "clipboard-check", label: "Asistencia", perm: "asistencia", role: "success" },
   { id: "historial", icon: "user-search", label: "Historial", perm: "asistencia", role: "warning" },
   { id: "tareas", icon: "checklist", label: "Tareas", perm: "asistencia", role: "danger" },
+  { id: "legajos", icon: "folder-open", label: "Legajos", perm: "config", role: "pro" },
   { id: "reportes", icon: "chart-bar", label: "Reportes", perm: "reportes", role: "danger" },
   { id: "config", icon: "settings", label: "Configuración", perm: "config", role: "accent" },
 ];
@@ -2480,6 +2481,429 @@ function ModalTarea({ mode, data, miembros, usuario, ESTADOS, PRIORIDADES, onClo
 }
 
 // ─────────────────────────────────────────────────────────────
+// MÓDULO LEGAJOS
+// ─────────────────────────────────────────────────────────────
+function ModuloLegajos() {
+  const { usuario, toast } = useApp();
+  const isMobile = useIsMobile();
+  const [busqueda, setBusqueda] = useState("");
+  const [sugerencias, setSugerencias] = useState([]);
+  const [miembroSel, setMiembroSel] = useState(null);
+  const [buscando, setBuscando] = useState(false);
+  const [tab, setTab] = useState("cargos");
+  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState({ legajo: null, cargos: [], templos: [], documentos: [], disciplinas: [] });
+  const [modal, setModal] = useState(null);
+  const dropRef = useRef();
+
+  const TABS = [
+    { id: "cargos", icon: "briefcase", label: "Cargos/Ministerios" },
+    { id: "documentos", icon: "file-certificate", label: "Documentos" },
+    { id: "templos", icon: "building-church", label: "Cambios de templo" },
+    { id: "disciplinas", icon: "shield-exclamation", label: "Disciplinas" },
+    { id: "notas", icon: "notes", label: "Notas pastorales" },
+  ];
+
+  const TIPO_DOC = { bautismo: "Bautismo", membresia: "Membresía", matrimonio: "Matrimonio", ordenacion: "Ordenación", transferencia: "Transferencia", disciplina: "Disciplina", otro: "Otro" };
+  const TIPO_DISC = { amonestacion: "Amonestación", suspension: "Suspensión", restauracion: "Restauración", otro: "Otro" };
+
+  // Búsqueda de miembro
+  useEffect(() => {
+    if (busqueda.length < 2) { setSugerencias([]); return; }
+    const t = setTimeout(async () => {
+      setBuscando(true);
+      try {
+        const q = busqueda.toLowerCase();
+        const ms = await sb.query("miembros", `?or=(nombres.ilike.*${encodeURIComponent(q)}*,apellidos.ilike.*${encodeURIComponent(q)}*)&select=id,nombres,apellidos,foto_url,estado,templos(nombre)&order=apellidos.asc&limit=8`);
+        setSugerencias(ms);
+      } catch {}
+      finally { setBuscando(false); }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [busqueda]);
+
+  const seleccionar = async (m) => {
+    setMiembroSel(m);
+    setBusqueda(`${m.apellidos}, ${m.nombres}`);
+    setSugerencias([]);
+    await cargarLegajo(m.id);
+  };
+
+  const cargarLegajo = async (miembroId) => {
+    setLoading(true);
+    try {
+      const [legajos, cargos, templos, documentos, disciplinas] = await Promise.all([
+        sb.query("legajos", `?miembro_id=eq.${miembroId}&select=*`),
+        sb.query("legajo_cargos", `?miembro_id=eq.${miembroId}&select=*,usuarios_sistema(nombre)&order=fecha_inicio.desc`),
+        sb.query("legajo_templos", `?miembro_id=eq.${miembroId}&select=*,usuarios_sistema(nombre)&order=fecha.desc`),
+        sb.query("legajo_documentos", `?miembro_id=eq.${miembroId}&select=*,usuarios_sistema(nombre)&order=fecha.desc`),
+        sb.query("legajo_disciplinas", `?miembro_id=eq.${miembroId}&select=*,usuarios_sistema(nombre)&order=fecha.desc`),
+      ]);
+      setData({ legajo: legajos[0] || null, cargos, templos, documentos, disciplinas });
+    } catch (e) { toast(e.message, "error"); }
+    finally { setLoading(false); }
+  };
+
+  const guardarNotas = async (notas, observaciones) => {
+    try {
+      if (data.legajo) {
+        await sb.update("legajos", data.legajo.id, { notas_pastorales: notas, observaciones_confidenciales: observaciones, updated_at: new Date().toISOString() });
+      } else {
+        await sb.insert("legajos", { miembro_id: miembroSel.id, notas_pastorales: notas, observaciones_confidenciales: observaciones });
+      }
+      toast("Notas guardadas ✓", "ok");
+      cargarLegajo(miembroSel.id);
+    } catch (e) { toast(e.message, "error"); }
+  };
+
+  return (
+    <div>
+      <SectionHeader title="Legajos" icon="folder-open" role="pro" />
+
+      {/* Buscador */}
+      <div style={{ position: "relative", maxWidth: 480, marginBottom: 24 }} ref={dropRef}>
+        <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 6 }}>Buscar miembro</label>
+        <div style={{ position: "relative" }}>
+          <input value={busqueda} onChange={e => { setBusqueda(e.target.value); setMiembroSel(null); }} placeholder="Escribí nombre o apellido..." style={{ width: "100%", boxSizing: "border-box", paddingRight: 36 }} />
+          <i className={`ti ti-${buscando ? "loader-2" : "search"}`} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)", fontSize: 16, pointerEvents: "none" }} />
+        </div>
+        {sugerencias.length > 0 && (
+          <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 100, overflow: "hidden", marginTop: 4 }}>
+            {sugerencias.map(m => (
+              <button key={m.id} onClick={() => seleccionar(m)} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "10px 14px", border: "none", background: "transparent", cursor: "pointer", fontFamily: "var(--font-sans)", textAlign: "left", borderBottom: "0.5px solid var(--border)" }}
+                onMouseEnter={e => e.currentTarget.style.background = "var(--surface-1)"}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <Avatar foto={m.foto_url} nombre={`${m.nombres} ${m.apellidos}`} size={32} />
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 500 }}>{m.apellidos}, {m.nombres}</div>
+                  <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{m.templos?.nombre} · <Badge label={m.estado} /></div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {!miembroSel && (
+        <div style={{ textAlign: "center", padding: "56px 0", color: "var(--text-muted)" }}>
+          <i className="ti ti-folder-open" style={{ fontSize: 44, display: "block", marginBottom: 12 }} />
+          <div style={{ fontSize: 15, fontWeight: 500, color: "var(--text-secondary)", marginBottom: 6 }}>Buscá un miembro para ver su legajo</div>
+          <div style={{ fontSize: 13 }}>El legajo contiene el historial completo: cargos, documentos, disciplinas y notas pastorales</div>
+        </div>
+      )}
+
+      {miembroSel && (
+        <>
+          {/* Card miembro */}
+          <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 18, marginBottom: 20, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+            <Avatar foto={miembroSel.foto_url} nombre={`${miembroSel.nombres} ${miembroSel.apellidos}`} size={52} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 17, fontWeight: 500, marginBottom: 4 }}>{miembroSel.apellidos}, {miembroSel.nombres}</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <Badge label={miembroSel.estado} />
+                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{miembroSel.templos?.nombre}</span>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{data.cargos.length} cargo(s) · {data.documentos.length} doc(s) · {data.disciplinas.length} disciplina(s)</span>
+            </div>
+          </div>
+
+          {/* Tabs */}
+          <div style={{ display: "flex", gap: 6, marginBottom: 20, flexWrap: "wrap" }}>
+            {TABS.map(t => (
+              <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "7px 14px", borderRadius: 8, border: `0.5px solid ${tab === t.id ? "var(--border-pro)" : "var(--border)"}`, background: tab === t.id ? "var(--bg-pro)" : "transparent", color: tab === t.id ? "var(--text-pro)" : "var(--text-secondary)", fontSize: 13, fontFamily: "var(--font-sans)", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                <i className={`ti ti-${t.icon}`} style={{ fontSize: 14 }} />
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {loading ? <Spinner /> : (
+            <>
+              {/* CARGOS */}
+              {tab === "cargos" && (
+                <div>
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
+                    <Btn icon="plus" variant="primary" small onClick={() => setModal({ tipo: "cargo" })}>Agregar cargo</Btn>
+                  </div>
+                  {data.cargos.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: 32, color: "var(--text-muted)", fontSize: 13 }}>Sin historial de cargos registrado</div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {data.cargos.map(c => (
+                        <div key={c.id} style={{ background: "var(--surface-2)", border: `0.5px solid ${c.activo ? "var(--border-success)" : "var(--border)"}`, borderRadius: 10, padding: "12px 16px", display: "flex", gap: 12, alignItems: "flex-start" }}>
+                          <i className="ti ti-briefcase" style={{ fontSize: 18, color: c.activo ? "var(--text-success)" : "var(--text-muted)", marginTop: 2 }} />
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>{c.cargo} {c.ministerio && <span style={{ fontSize: 13, color: "var(--text-muted)" }}>— {c.ministerio}</span>}</div>
+                            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+                              {c.fecha_inicio ? fmtDate(c.fecha_inicio) : "Sin fecha"} {c.fecha_fin ? `→ ${fmtDate(c.fecha_fin)}` : c.activo ? "→ Actual" : ""}
+                              {c.observacion && ` · ${c.observacion}`}
+                            </div>
+                            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>Registrado por {c.usuarios_sistema?.nombre || "Sistema"}</div>
+                          </div>
+                          {c.activo && <Badge label="Activo" role="success" />}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* DOCUMENTOS */}
+              {tab === "documentos" && (
+                <div>
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
+                    <Btn icon="plus" variant="primary" small onClick={() => setModal({ tipo: "documento" })}>Agregar documento</Btn>
+                  </div>
+                  {data.documentos.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: 32, color: "var(--text-muted)", fontSize: 13 }}>Sin documentos registrados</div>
+                  ) : (
+                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
+                      {data.documentos.map(d => (
+                        <div key={d.id} style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 10, padding: "14px 16px" }}>
+                          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                            <i className="ti ti-file-certificate" style={{ fontSize: 20, color: "var(--text-accent)" }} />
+                            <div>
+                              <div style={{ fontSize: 14, fontWeight: 500 }}>{d.titulo}</div>
+                              <Badge label={TIPO_DOC[d.tipo] || d.tipo} role="accent" />
+                            </div>
+                          </div>
+                          {d.descripcion && <div style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 6 }}>{d.descripcion}</div>}
+                          <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{d.fecha ? fmtDate(d.fecha) : "Sin fecha"} · {d.usuarios_sistema?.nombre}</div>
+                          {d.archivo_url && <a href={d.archivo_url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "var(--text-accent)", display: "flex", alignItems: "center", gap: 4, marginTop: 8 }}><i className="ti ti-download" />Ver archivo</a>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* CAMBIOS DE TEMPLO */}
+              {tab === "templos" && (
+                <div>
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
+                    <Btn icon="plus" variant="primary" small onClick={() => setModal({ tipo: "templo" })}>Registrar cambio</Btn>
+                  </div>
+                  {data.templos.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: 32, color: "var(--text-muted)", fontSize: 13 }}>Sin cambios de templo registrados</div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {data.templos.map(t => (
+                        <div key={t.id} style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 10, padding: "12px 16px", display: "flex", gap: 12, alignItems: "flex-start" }}>
+                          <i className="ti ti-building-church" style={{ fontSize: 18, color: "var(--text-accent)", marginTop: 2 }} />
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 14, fontWeight: 500 }}>{t.templo_anterior || "—"} <i className="ti ti-arrow-right" style={{ fontSize: 13 }} /> {t.templo_nuevo || "—"}</div>
+                            {t.motivo && <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 4 }}>{t.motivo}</div>}
+                            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>{fmtDate(t.fecha)} · {t.usuarios_sistema?.nombre}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* DISCIPLINAS */}
+              {tab === "disciplinas" && (
+                <div>
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
+                    <Btn icon="plus" variant="primary" small onClick={() => setModal({ tipo: "disciplina" })}>Registrar disciplina</Btn>
+                  </div>
+                  {data.disciplinas.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: 32, color: "var(--text-muted)", fontSize: 13 }}>Sin disciplinas registradas</div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {data.disciplinas.map(d => (
+                        <div key={d.id} style={{ background: d.estado === "activo" ? "var(--bg-danger)" : "var(--surface-2)", border: `0.5px solid ${d.estado === "activo" ? "var(--border-danger)" : "var(--border)"}`, borderRadius: 10, padding: "12px 16px" }}>
+                          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+                            <Badge label={TIPO_DISC[d.tipo] || d.tipo} role={d.estado === "activo" ? "danger" : "success"} />
+                            <Badge label={d.estado === "activo" ? "Activa" : "Resuelta"} role={d.estado === "activo" ? "danger" : "success"} />
+                          </div>
+                          <div style={{ fontSize: 14, color: "var(--text-primary)", marginBottom: 4 }}>{d.descripcion}</div>
+                          <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                            Inicio: {fmtDate(d.fecha)} {d.fecha_resolucion ? `· Resolución: ${fmtDate(d.fecha_resolucion)}` : ""} · {d.usuarios_sistema?.nombre}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* NOTAS PASTORALES */}
+              {tab === "notas" && (
+                <FormNotas
+                  legajo={data.legajo}
+                  onGuardar={guardarNotas}
+                />
+              )}
+            </>
+          )}
+        </>
+      )}
+
+      {/* Modales de ingreso */}
+      {modal && (
+        <ModalLegajo
+          tipo={modal.tipo}
+          miembroId={miembroSel?.id}
+          usuario={usuario}
+          onClose={() => setModal(null)}
+          onSaved={() => { setModal(null); cargarLegajo(miembroSel.id); toast("Guardado ✓", "ok"); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// Formulario de notas pastorales
+function FormNotas({ legajo, onGuardar }) {
+  const [notas, setNotas] = useState(legajo?.notas_pastorales || "");
+  const [obs, setObs] = useState(legajo?.observaciones_confidenciales || "");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setNotas(legajo?.notas_pastorales || "");
+    setObs(legajo?.observaciones_confidenciales || "");
+  }, [legajo]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    await onGuardar(notas, obs);
+    setSaving(false);
+  };
+
+  return (
+    <div>
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 6 }}>
+          <i className="ti ti-notes" style={{ marginRight: 6 }} />Notas pastorales
+        </label>
+        <textarea value={notas} onChange={e => setNotas(e.target.value)} rows={5} placeholder="Observaciones pastorales, visitas, seguimiento espiritual..." style={{ width: "100%", boxSizing: "border-box", resize: "vertical", borderRadius: 8, border: "0.5px solid var(--border)", padding: "8px 10px", fontSize: 14, fontFamily: "var(--font-sans)", background: "var(--surface-2)", color: "var(--text-primary)" }} />
+      </div>
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 6 }}>
+          <i className="ti ti-lock" style={{ marginRight: 6 }} />Observaciones confidenciales <span style={{ fontSize: 11, color: "var(--text-muted)" }}>(solo visible para admin)</span>
+        </label>
+        <textarea value={obs} onChange={e => setObs(e.target.value)} rows={4} placeholder="Situaciones confidenciales, contexto familiar, necesidades específicas..." style={{ width: "100%", boxSizing: "border-box", resize: "vertical", borderRadius: 8, border: "0.5px solid var(--border-danger)", padding: "8px 10px", fontSize: 14, fontFamily: "var(--font-sans)", background: "var(--surface-2)", color: "var(--text-primary)" }} />
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <Btn variant="primary" icon="device-floppy" loading={saving} onClick={handleSave}>
+          {saving ? "Guardando..." : "Guardar notas"}
+        </Btn>
+      </div>
+    </div>
+  );
+}
+
+// Modal para agregar registros al legajo
+function ModalLegajo({ tipo, miembroId, usuario, onClose, onSaved }) {
+  const { toast } = useApp();
+  const isMobile = useIsMobile();
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({});
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const titles = { cargo: "Agregar cargo/ministerio", documento: "Agregar documento", templo: "Registrar cambio de templo", disciplina: "Registrar disciplina" };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const base = { miembro_id: miembroId, registrado_por: usuario?.id };
+      if (tipo === "cargo") {
+        if (!form.cargo?.trim()) { toast("El cargo es requerido", "warn"); return; }
+        await sb.insert("legajo_cargos", { ...base, ...form, activo: form.fecha_fin ? false : true });
+      } else if (tipo === "documento") {
+        if (!form.titulo?.trim() || !form.tipo) { toast("Título y tipo son requeridos", "warn"); return; }
+        await sb.insert("legajo_documentos", { ...base, ...form });
+      } else if (tipo === "templo") {
+        if (!form.templo_nuevo?.trim()) { toast("El nuevo templo es requerido", "warn"); return; }
+        await sb.insert("legajo_templos", { ...base, ...form, fecha: form.fecha || today() });
+      } else if (tipo === "disciplina") {
+        if (!form.tipo || !form.descripcion?.trim()) { toast("Tipo y descripción son requeridos", "warn"); return; }
+        await sb.insert("legajo_disciplinas", { ...base, ...form, estado: form.fecha_resolucion ? "resuelto" : "activo" });
+      }
+      onSaved();
+    } catch (e) { toast(e.message, "error"); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <Modal title={titles[tipo]} onClose={onClose}>
+      {tipo === "cargo" && (
+        <div>
+          <Inp label="Cargo *" value={form.cargo || ""} onChange={e => set("cargo", e.target.value)} placeholder="Ej: Pastor, Diácono, Líder de alabanza..." />
+          <Inp label="Ministerio" value={form.ministerio || ""} onChange={e => set("ministerio", e.target.value)} placeholder="Ej: Ministerio de Jóvenes" />
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
+            <Inp label="Fecha inicio" type="date" value={form.fecha_inicio || ""} onChange={e => set("fecha_inicio", e.target.value)} />
+            <Inp label="Fecha fin (si ya no está activo)" type="date" value={form.fecha_fin || ""} onChange={e => set("fecha_fin", e.target.value)} />
+          </div>
+          <Inp label="Observación" value={form.observacion || ""} onChange={e => set("observacion", e.target.value)} placeholder="Notas adicionales..." />
+        </div>
+      )}
+      {tipo === "documento" && (
+        <div>
+          <Sel label="Tipo de documento *" value={form.tipo || ""} onChange={e => set("tipo", e.target.value)}>
+            <option value="">— Seleccionar —</option>
+            <option value="bautismo">Bautismo</option>
+            <option value="membresia">Membresía</option>
+            <option value="matrimonio">Matrimonio</option>
+            <option value="ordenacion">Ordenación</option>
+            <option value="transferencia">Transferencia</option>
+            <option value="disciplina">Disciplina</option>
+            <option value="otro">Otro</option>
+          </Sel>
+          <Inp label="Título *" value={form.titulo || ""} onChange={e => set("titulo", e.target.value)} placeholder="Ej: Carta de bautismo, Certificado de membresía..." />
+          <Inp label="Fecha del documento" type="date" value={form.fecha || ""} onChange={e => set("fecha", e.target.value)} />
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 4 }}>Descripción</label>
+            <textarea value={form.descripcion || ""} onChange={e => set("descripcion", e.target.value)} rows={3} style={{ width: "100%", boxSizing: "border-box", resize: "vertical", borderRadius: 8, border: "0.5px solid var(--border)", padding: "8px 10px", fontSize: 14, fontFamily: "var(--font-sans)", background: "var(--surface-2)", color: "var(--text-primary)" }} />
+          </div>
+          <Inp label="URL del archivo (opcional)" value={form.archivo_url || ""} onChange={e => set("archivo_url", e.target.value)} placeholder="https://drive.google.com/..." />
+        </div>
+      )}
+      {tipo === "templo" && (
+        <div>
+          <Inp label="Templo anterior" value={form.templo_anterior || ""} onChange={e => set("templo_anterior", e.target.value)} placeholder="Nombre del templo anterior" />
+          <Inp label="Templo nuevo *" value={form.templo_nuevo || ""} onChange={e => set("templo_nuevo", e.target.value)} placeholder="Nombre del templo al que se transfiere" />
+          <Inp label="Fecha del cambio" type="date" value={form.fecha || today()} onChange={e => set("fecha", e.target.value)} />
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 4 }}>Motivo</label>
+            <textarea value={form.motivo || ""} onChange={e => set("motivo", e.target.value)} rows={3} placeholder="Motivo del cambio..." style={{ width: "100%", boxSizing: "border-box", resize: "vertical", borderRadius: 8, border: "0.5px solid var(--border)", padding: "8px 10px", fontSize: 14, fontFamily: "var(--font-sans)", background: "var(--surface-2)", color: "var(--text-primary)" }} />
+          </div>
+        </div>
+      )}
+      {tipo === "disciplina" && (
+        <div>
+          <Sel label="Tipo de disciplina *" value={form.tipo || ""} onChange={e => set("tipo", e.target.value)}>
+            <option value="">— Seleccionar —</option>
+            <option value="amonestacion">Amonestación</option>
+            <option value="suspension">Suspensión</option>
+            <option value="restauracion">Restauración</option>
+            <option value="otro">Otro</option>
+          </Sel>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 4 }}>Descripción *</label>
+            <textarea value={form.descripcion || ""} onChange={e => set("descripcion", e.target.value)} rows={4} placeholder="Describe la situación, motivo y acciones tomadas..." style={{ width: "100%", boxSizing: "border-box", resize: "vertical", borderRadius: 8, border: "0.5px solid var(--border)", padding: "8px 10px", fontSize: 14, fontFamily: "var(--font-sans)", background: "var(--surface-2)", color: "var(--text-primary)" }} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
+            <Inp label="Fecha de inicio" type="date" value={form.fecha || today()} onChange={e => set("fecha", e.target.value)} />
+            <Inp label="Fecha de resolución (si ya fue resuelta)" type="date" value={form.fecha_resolucion || ""} onChange={e => set("fecha_resolucion", e.target.value)} />
+          </div>
+        </div>
+      )}
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 16 }}>
+        <Btn onClick={onClose}>Cancelar</Btn>
+        <Btn variant="primary" icon="device-floppy" loading={saving} onClick={handleSave}>
+          {saving ? "Guardando..." : "Guardar"}
+        </Btn>
+      </div>
+    </Modal>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // APP PRINCIPAL
 // ─────────────────────────────────────────────────────────────
 export default function App() {
@@ -2547,7 +2971,7 @@ export default function App() {
     </AppCtx.Provider>
   );
 
-  const PAGES = { dashboard: Dashboard, miembros: ModuloMiembros, asistencia: ModuloAsistencia, historial: ModuloHistorial, tareas: ModuloTareas, reportes: ModuloReportes, config: ModuloConfig };
+  const PAGES = { dashboard: Dashboard, miembros: ModuloMiembros, asistencia: ModuloAsistencia, historial: ModuloHistorial, tareas: ModuloTareas, legajos: ModuloLegajos, reportes: ModuloReportes, config: ModuloConfig };
   const PageComp = PAGES[page] || Dashboard;
   const currentNav = NAV_ITEMS.find(n => n.id === page);
 
