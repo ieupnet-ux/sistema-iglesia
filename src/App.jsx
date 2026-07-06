@@ -290,7 +290,7 @@ function LoginPage({ onLogin }) {
       <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 16, padding: "40px 36px", width: "100%", maxWidth: 400 }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <div style={{ width: 120, height: 80, margin: "0 auto 16px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <img src="/logo-iglesia.jpg" alt="Unión Pentecostal" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+            <img src="/logo-navy.png" alt="Unión Pentecostal" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
           </div>
           <h1 style={{ margin: "0 0 6px", fontSize: 22, fontWeight: 500 }}>Unión Pentecostal</h1>
           <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted)" }}>Gestión integral de miembros y asistencia</p>
@@ -334,8 +334,8 @@ function Sidebar({ active, onChange, usuario, onLogout, isMobile, isOpen, onClos
     <div style={{ width: isMobile ? 260 : 220, background: "var(--surface-1)", borderRight: "0.5px solid var(--border)", display: "flex", flexDirection: "column", height: "100vh", flexShrink: 0, position: isMobile ? "fixed" : "sticky", top: 0, left: 0, zIndex: 1100, transform: isMobile ? (isOpen ? "translateX(0)" : "translateX(-100%)") : "none", transition: "transform 0.25s ease" }}>
       <div style={{ padding: "20px 18px 16px", borderBottom: "0.5px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <img src="/logo-iglesia.jpg" alt="Unión Pentecostal" style={{ width: 38, height: 38, objectFit: "contain" }} />
+          <div style={{ width: 38, height: 38, background: "#1e2d5a", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, padding: 4 }}>
+            <img src="/logo-white.png" alt="IEUP" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
           </div>
           <div>
             <div style={{ fontSize: 13, fontWeight: 500, lineHeight: 1.2 }}>Unión Pentecostal</div>

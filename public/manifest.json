@@ -1,23 +1,31 @@
 {
-  "short_name": "Iglesia IEUP",
+  "short_name": "IEUP",
   "name": "Sistema Unión Pentecostal",
   "description": "Gestión integral de miembros, asistencia y tareas",
   "icons": [
     {
-      "src": "logo-iglesia.jpg",
-      "sizes": "192x192",
-      "type": "image/jpeg"
+      "src": "apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "apple touch icon"
     },
     {
-      "src": "logo-iglesia.jpg",
+      "src": "icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512x512.png",
       "sizes": "512x512",
-      "type": "image/jpeg"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ],
   "start_url": "/",
   "display": "standalone",
-  "theme_color": "#178CC7",
-  "background_color": "#fafaf8",
+  "theme_color": "#1e2d5a",
+  "background_color": "#1e2d5a",
   "orientation": "portrait-primary",
   "lang": "es",
   "categories": ["productivity", "utilities"]
