@@ -2502,6 +2502,7 @@ function ModuloLegajos() {
     { id: "templos", icon: "building-church", label: "Cambios de templo" },
     { id: "disciplinas", icon: "shield-exclamation", label: "Disciplinas" },
     { id: "notas", icon: "notes", label: "Notas pastorales" },
+    { id: "plantillas", icon: "file-text", label: "Generar documentos" },
   ];
 
   const TIPO_DOC = { bautismo: "Bautismo", membresia: "Membresía", matrimonio: "Matrimonio", ordenacion: "Ordenación", transferencia: "Transferencia", disciplina: "Disciplina", otro: "Otro" };
@@ -2738,6 +2739,10 @@ function ModuloLegajos() {
                   onGuardar={guardarNotas}
                 />
               )}
+
+              {tab === "plantillas" && (
+                <GeneradorDocumentos miembro={miembroSel} />
+              )}
             </>
           )}
         </>
@@ -2753,6 +2758,346 @@ function ModuloLegajos() {
           onSaved={() => { setModal(null); cargarLegajo(miembroSel.id); toast("Guardado ✓", "ok"); }}
         />
       )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// GENERADOR DE DOCUMENTOS (Sanción / Licencia)
+// Genera PDF y DOCX directamente en el navegador
+// ─────────────────────────────────────────────────────────────
+function GeneradorDocumentos({ miembro }) {
+  const [tipo, setTipo] = useState("sancion");
+  const [generando, setGenerando] = useState(false);
+  const [form, setForm] = useState({
+    iglesia: "Unión Pentecostal",
+    ciudad: "",
+    fecha: new Date().toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" }),
+    pastor: "",
+    cargo_pastor: "Pastor",
+    // Sanción
+    tipo_sancion: "amonestacion",
+    motivo_sancion: "",
+    descripcion_sancion: "",
+    duracion: "",
+    restricciones: "",
+    condiciones_restauracion: "",
+    // Licencia
+    tipo_licencia: "vacaciones",
+    motivo_licencia: "",
+    fecha_inicio: "",
+    fecha_fin: "",
+    quien_reemplaza: "",
+    observaciones: "",
+  });
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const TIPOS_SANCION = [
+    { val: "amonestacion", label: "Amonestación" },
+    { val: "suspension", label: "Suspensión temporal" },
+    { val: "separacion", label: "Separación del ministerio" },
+    { val: "restauracion", label: "Acta de restauración" },
+  ];
+
+  const TIPOS_LICENCIA = [
+    { val: "vacaciones", label: "Licencia vacacional" },
+    { val: "enfermedad", label: "Licencia por enfermedad" },
+    { val: "maternidad", label: "Licencia por maternidad/paternidad" },
+    { val: "estudio", label: "Licencia por estudios" },
+    { val: "ministerial", label: "Licencia ministerial" },
+    { val: "otro", label: "Otra licencia" },
+  ];
+
+  const nombre = miembro ? `${miembro.nombres} ${miembro.apellidos}` : "—";
+
+  // ── Generar texto del documento ──────────────────────────
+  const buildTextoSancion = () => {
+    const tipoLabel = TIPOS_SANCION.find(t => t.val === form.tipo_sancion)?.label || form.tipo_sancion;
+    return [
+      { texto: form.iglesia.toUpperCase(), estilo: "titulo" },
+      { texto: `ACTA DE ${tipoLabel.toUpperCase()}`, estilo: "subtitulo" },
+      { texto: "", estilo: "espacio" },
+      { texto: `En la ciudad de ${form.ciudad || "___________"}, a ${form.fecha},`, estilo: "normal" },
+      { texto: "", estilo: "espacio" },
+      { texto: `La directiva pastoral de ${form.iglesia}, reunida en sesión formal, ha resuelto lo siguiente en relación al hermano/a:`, estilo: "normal" },
+      { texto: "", estilo: "espacio" },
+      { texto: `NOMBRE: ${nombre}`, estilo: "dato" },
+      { texto: "", estilo: "espacio" },
+      { texto: "MOTIVO:", estilo: "subtitulo_pequeño" },
+      { texto: form.motivo_sancion || "___________________________________________", estilo: "normal" },
+      { texto: "", estilo: "espacio" },
+      { texto: "DESCRIPCIÓN:", estilo: "subtitulo_pequeño" },
+      { texto: form.descripcion_sancion || "___________________________________________", estilo: "normal" },
+      ...(form.tipo_sancion !== "restauracion" ? [
+        { texto: "", estilo: "espacio" },
+        { texto: "MEDIDA DISCIPLINARIA:", estilo: "subtitulo_pequeño" },
+        { texto: `Se aplica ${tipoLabel}${form.duracion ? ` por un período de ${form.duracion}` : ""}.`, estilo: "normal" },
+        ...(form.restricciones ? [
+          { texto: "", estilo: "espacio" },
+          { texto: "RESTRICCIONES:", estilo: "subtitulo_pequeño" },
+          { texto: form.restricciones, estilo: "normal" },
+        ] : []),
+        ...(form.condiciones_restauracion ? [
+          { texto: "", estilo: "espacio" },
+          { texto: "CONDICIONES PARA LA RESTAURACIÓN:", estilo: "subtitulo_pequeño" },
+          { texto: form.condiciones_restauracion, estilo: "normal" },
+        ] : []),
+      ] : []),
+      { texto: "", estilo: "espacio" },
+      { texto: "Esta resolución ha sido adoptada con el propósito de guiar al hermano/a hacia la restauración y el crecimiento espiritual, en el amor y la gracia de Dios.", estilo: "normal" },
+      { texto: "", estilo: "espacio" },
+      { texto: "", estilo: "espacio" },
+      { texto: "_______________________________", estilo: "firma" },
+      { texto: form.pastor || "Pastor/a", estilo: "firma" },
+      { texto: form.cargo_pastor, estilo: "firma_cargo" },
+      { texto: form.iglesia, estilo: "firma_cargo" },
+    ];
+  };
+
+  const buildTextoLicencia = () => {
+    const tipoLabel = TIPOS_LICENCIA.find(t => t.val === form.tipo_licencia)?.label || form.tipo_licencia;
+    return [
+      { texto: form.iglesia.toUpperCase(), estilo: "titulo" },
+      { texto: `CONSTANCIA DE ${tipoLabel.toUpperCase()}`, estilo: "subtitulo" },
+      { texto: "", estilo: "espacio" },
+      { texto: `En la ciudad de ${form.ciudad || "___________"}, a ${form.fecha},`, estilo: "normal" },
+      { texto: "", estilo: "espacio" },
+      { texto: `Por medio de la presente, la dirección pastoral de ${form.iglesia} hace constar que:`, estilo: "normal" },
+      { texto: "", estilo: "espacio" },
+      { texto: `NOMBRE: ${nombre}`, estilo: "dato" },
+      { texto: "", estilo: "espacio" },
+      { texto: "Se le otorga la presente licencia por el siguiente motivo:", estilo: "normal" },
+      { texto: form.motivo_licencia || "___________________________________________", estilo: "normal" },
+      ...(form.fecha_inicio || form.fecha_fin ? [
+        { texto: "", estilo: "espacio" },
+        { texto: `PERÍODO: desde ${form.fecha_inicio ? new Date(form.fecha_inicio + "T12:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" }) : "___"} hasta ${form.fecha_fin ? new Date(form.fecha_fin + "T12:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" }) : "___"}`, estilo: "dato" },
+      ] : []),
+      ...(form.quien_reemplaza ? [
+        { texto: "", estilo: "espacio" },
+        { texto: `Durante su ausencia, será reemplazado/a por: ${form.quien_reemplaza}`, estilo: "normal" },
+      ] : []),
+      ...(form.observaciones ? [
+        { texto: "", estilo: "espacio" },
+        { texto: "OBSERVACIONES:", estilo: "subtitulo_pequeño" },
+        { texto: form.observaciones, estilo: "normal" },
+      ] : []),
+      { texto: "", estilo: "espacio" },
+      { texto: "Se extiende la presente constancia para los fines que el interesado estime conveniente.", estilo: "normal" },
+      { texto: "", estilo: "espacio" },
+      { texto: "", estilo: "espacio" },
+      { texto: "_______________________________", estilo: "firma" },
+      { texto: form.pastor || "Pastor/a", estilo: "firma" },
+      { texto: form.cargo_pastor, estilo: "firma_cargo" },
+      { texto: form.iglesia, estilo: "firma_cargo" },
+    ];
+  };
+
+  // ── Generar PDF usando jsPDF (CDN) ───────────────────────
+  const generarPDF = async () => {
+    setGenerando(true);
+    try {
+      // Cargar jsPDF dinámicamente
+      if (!window.jspdf) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+          script.onload = resolve;
+          script.onerror = reject;
+          document.head.appendChild(script);
+        });
+      }
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const lineas = tipo === "sancion" ? buildTextoSancion() : buildTextoLicencia();
+      const margenX = 25;
+      const anchoTexto = 160;
+      let y = 30;
+
+      for (const linea of lineas) {
+        if (linea.estilo === "espacio") { y += 6; continue; }
+        if (y > 270) { doc.addPage(); y = 30; }
+
+        if (linea.estilo === "titulo") {
+          doc.setFontSize(14); doc.setFont("helvetica", "bold");
+          doc.text(linea.texto, 105, y, { align: "center" });
+          y += 8;
+        } else if (linea.estilo === "subtitulo") {
+          doc.setFontSize(12); doc.setFont("helvetica", "bold");
+          doc.text(linea.texto, 105, y, { align: "center" });
+          y += 8;
+        } else if (linea.estilo === "subtitulo_pequeño") {
+          doc.setFontSize(10); doc.setFont("helvetica", "bold");
+          doc.text(linea.texto, margenX, y);
+          y += 6;
+        } else if (linea.estilo === "dato") {
+          doc.setFontSize(11); doc.setFont("helvetica", "bold");
+          const split = doc.splitTextToSize(linea.texto, anchoTexto);
+          doc.text(split, margenX, y);
+          y += split.length * 6;
+        } else if (linea.estilo === "firma") {
+          doc.setFontSize(10); doc.setFont("helvetica", "normal");
+          doc.text(linea.texto, 105, y, { align: "center" });
+          y += 5;
+        } else if (linea.estilo === "firma_cargo") {
+          doc.setFontSize(9); doc.setFont("helvetica", "italic");
+          doc.text(linea.texto, 105, y, { align: "center" });
+          y += 5;
+        } else {
+          doc.setFontSize(10); doc.setFont("helvetica", "normal");
+          const split = doc.splitTextToSize(linea.texto, anchoTexto);
+          doc.text(split, margenX, y);
+          y += split.length * 5.5;
+        }
+      }
+
+      const tipoLabel = tipo === "sancion" ? "Sancion" : "Licencia";
+      const apellido = miembro?.apellidos || "miembro";
+      doc.save(`${tipoLabel}_${apellido}_${new Date().toISOString().split("T")[0]}.pdf`);
+    } catch (e) {
+      alert("Error al generar PDF: " + e.message);
+    }
+    setGenerando(false);
+  };
+
+  // ── Generar DOCX ─────────────────────────────────────────
+  const generarDOCX = () => {
+    const lineas = tipo === "sancion" ? buildTextoSancion() : buildTextoLicencia();
+    // Construir RTF simplificado que Word puede abrir como .doc
+    let rtf = "{\\rtf1\\ansi\\deff0\\deflang3082\n";
+    rtf += "{\\fonttbl{\\f0\\froman Times New Roman;}{\\f1\\fswiss Arial;}}\n";
+    rtf += "\\paperw11906\\paperh16838\\margl1800\\margr1800\\margt1440\\margb1440\n";
+
+    for (const l of lineas) {
+      if (l.estilo === "espacio") { rtf += "\\par\n"; continue; }
+      let texto = l.texto.replace(/[\\{}]/g, "\\$&");
+      // Convertir caracteres especiales
+      texto = texto.replace(/á/g, "\\'e1").replace(/é/g, "\\'e9").replace(/í/g, "\\'ed")
+        .replace(/ó/g, "\\'f3").replace(/ú/g, "\\'fa").replace(/ñ/g, "\\'f1")
+        .replace(/Á/g, "\\'c1").replace(/É/g, "\\'c9").replace(/Í/g, "\\'cd")
+        .replace(/Ó/g, "\\'d3").replace(/Ú/g, "\\'da").replace(/Ñ/g, "\\'d1")
+        .replace(/ü/g, "\\'fc").replace(/Ü/g, "\\'dc");
+
+      if (l.estilo === "titulo") {
+        rtf += `\\pard\\qc\\f1\\fs28\\b ${texto}\\b0\\par\n`;
+      } else if (l.estilo === "subtitulo") {
+        rtf += `\\pard\\qc\\f1\\fs24\\b ${texto}\\b0\\par\n`;
+      } else if (l.estilo === "subtitulo_pequeño") {
+        rtf += `\\pard\\f1\\fs20\\b ${texto}\\b0\\par\n`;
+      } else if (l.estilo === "dato") {
+        rtf += `\\pard\\f1\\fs22\\b ${texto}\\b0\\par\n`;
+      } else if (l.estilo === "firma") {
+        rtf += `\\pard\\qc\\f1\\fs20 ${texto}\\par\n`;
+      } else if (l.estilo === "firma_cargo") {
+        rtf += `\\pard\\qc\\f1\\fs18\\i ${texto}\\i0\\par\n`;
+      } else {
+        rtf += `\\pard\\f0\\fs20 ${texto}\\par\n`;
+      }
+    }
+    rtf += "}";
+
+    const blob = new Blob([rtf], { type: "application/msword" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const tipoLabel = tipo === "sancion" ? "Sancion" : "Licencia";
+    const apellido = miembro?.apellidos || "miembro";
+    a.href = url;
+    a.download = `${tipoLabel}_${apellido}_${new Date().toISOString().split("T")[0]}.doc`;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const isMobile = useIsMobile();
+
+  return (
+    <div>
+      {/* Selector de tipo */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+        {[{ val: "sancion", label: "📋 Sanción / Disciplina", role: "danger" }, { val: "licencia", label: "📄 Licencia pastoral", role: "accent" }].map(t => (
+          <button key={t.val} onClick={() => setTipo(t.val)} style={{ flex: 1, padding: "12px 16px", borderRadius: 10, border: `0.5px solid ${tipo === t.val ? `var(--border-${t.role})` : "var(--border)"}`, background: tipo === t.val ? `var(--bg-${t.role})` : "transparent", color: tipo === t.val ? `var(--text-${t.role})` : "var(--text-secondary)", fontSize: 14, fontWeight: tipo === t.val ? 500 : 400, cursor: "pointer", fontFamily: "var(--font-sans)" }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Datos comunes */}
+      <div style={{ background: "var(--surface-1)", borderRadius: 10, padding: 16, marginBottom: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-secondary)", marginBottom: 12 }}>Datos del encabezado</div>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
+          <Inp label="Nombre de la iglesia" value={form.iglesia} onChange={e => set("iglesia", e.target.value)} />
+          <Inp label="Ciudad" value={form.ciudad} onChange={e => set("ciudad", e.target.value)} />
+          <Inp label="Fecha del documento" value={form.fecha} onChange={e => set("fecha", e.target.value)} />
+          <Inp label="Nombre del pastor/a firmante" value={form.pastor} onChange={e => set("pastor", e.target.value)} />
+          <Inp label="Cargo del firmante" value={form.cargo_pastor} onChange={e => set("cargo_pastor", e.target.value)} />
+        </div>
+      </div>
+
+      {/* Datos específicos sanción */}
+      {tipo === "sancion" && (
+        <div style={{ background: "var(--surface-1)", borderRadius: 10, padding: 16, marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-danger)", marginBottom: 12 }}>Datos de la sanción</div>
+          <Sel label="Tipo de sanción" value={form.tipo_sancion} onChange={e => set("tipo_sancion", e.target.value)}>
+            {TIPOS_SANCION.map(t => <option key={t.val} value={t.val}>{t.label}</option>)}
+          </Sel>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 4 }}>Motivo (breve)</label>
+            <textarea value={form.motivo_sancion} onChange={e => set("motivo_sancion", e.target.value)} rows={2} style={{ width: "100%", boxSizing: "border-box", resize: "vertical", borderRadius: 8, border: "0.5px solid var(--border)", padding: "8px 10px", fontSize: 14, fontFamily: "var(--font-sans)", background: "var(--surface-2)", color: "var(--text-primary)" }} placeholder="Ej: Conducta contraria a los principios bíblicos..." />
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 4 }}>Descripción detallada</label>
+            <textarea value={form.descripcion_sancion} onChange={e => set("descripcion_sancion", e.target.value)} rows={4} style={{ width: "100%", boxSizing: "border-box", resize: "vertical", borderRadius: 8, border: "0.5px solid var(--border)", padding: "8px 10px", fontSize: 14, fontFamily: "var(--font-sans)", background: "var(--surface-2)", color: "var(--text-primary)" }} placeholder="Descripción completa de la situación y decisión tomada..." />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
+            <Inp label="Duración (si aplica)" value={form.duracion} onChange={e => set("duracion", e.target.value)} placeholder="Ej: 3 meses, indefinido..." />
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 4 }}>Restricciones</label>
+            <textarea value={form.restricciones} onChange={e => set("restricciones", e.target.value)} rows={2} style={{ width: "100%", boxSizing: "border-box", resize: "vertical", borderRadius: 8, border: "0.5px solid var(--border)", padding: "8px 10px", fontSize: 14, fontFamily: "var(--font-sans)", background: "var(--surface-2)", color: "var(--text-primary)" }} placeholder="Ej: No participar en el ministerio de alabanza..." />
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 4 }}>Condiciones para la restauración</label>
+            <textarea value={form.condiciones_restauracion} onChange={e => set("condiciones_restauracion", e.target.value)} rows={2} style={{ width: "100%", boxSizing: "border-box", resize: "vertical", borderRadius: 8, border: "0.5px solid var(--border)", padding: "8px 10px", fontSize: 14, fontFamily: "var(--font-sans)", background: "var(--surface-2)", color: "var(--text-primary)" }} placeholder="Ej: Completar consejería pastoral, restitución..." />
+          </div>
+        </div>
+      )}
+
+      {/* Datos específicos licencia */}
+      {tipo === "licencia" && (
+        <div style={{ background: "var(--surface-1)", borderRadius: 10, padding: 16, marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-accent)", marginBottom: 12 }}>Datos de la licencia</div>
+          <Sel label="Tipo de licencia" value={form.tipo_licencia} onChange={e => set("tipo_licencia", e.target.value)}>
+            {TIPOS_LICENCIA.map(t => <option key={t.val} value={t.val}>{t.label}</option>)}
+          </Sel>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 4 }}>Motivo</label>
+            <textarea value={form.motivo_licencia} onChange={e => set("motivo_licencia", e.target.value)} rows={3} style={{ width: "100%", boxSizing: "border-box", resize: "vertical", borderRadius: 8, border: "0.5px solid var(--border)", padding: "8px 10px", fontSize: 14, fontFamily: "var(--font-sans)", background: "var(--surface-2)", color: "var(--text-primary)" }} placeholder="Descripción del motivo de la licencia..." />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
+            <Inp label="Fecha de inicio" type="date" value={form.fecha_inicio} onChange={e => set("fecha_inicio", e.target.value)} />
+            <Inp label="Fecha de fin" type="date" value={form.fecha_fin} onChange={e => set("fecha_fin", e.target.value)} />
+          </div>
+          <Inp label="Quien reemplaza durante la ausencia" value={form.quien_reemplaza} onChange={e => set("quien_reemplaza", e.target.value)} placeholder="Nombre del responsable reemplazante" />
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 4 }}>Observaciones adicionales</label>
+            <textarea value={form.observaciones} onChange={e => set("observaciones", e.target.value)} rows={2} style={{ width: "100%", boxSizing: "border-box", resize: "vertical", borderRadius: 8, border: "0.5px solid var(--border)", padding: "8px 10px", fontSize: 14, fontFamily: "var(--font-sans)", background: "var(--surface-2)", color: "var(--text-primary)" }} />
+          </div>
+        </div>
+      )}
+
+      {/* Botones de generación */}
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <Btn variant="danger" icon="file-type-pdf" loading={generando} onClick={generarPDF} style={{ flex: 1, justifyContent: "center", minWidth: 160 }}>
+          {generando ? "Generando PDF..." : "Descargar PDF"}
+        </Btn>
+        <Btn variant="accent" icon="file-type-doc" onClick={generarDOCX} style={{ flex: 1, justifyContent: "center", minWidth: 160 }}>
+          Descargar Word (.doc)
+        </Btn>
+      </div>
+
+      <div style={{ marginTop: 12, fontSize: 12, color: "var(--text-muted)", background: "var(--surface-1)", borderRadius: 8, padding: "8px 12px" }}>
+        <i className="ti ti-info-circle" style={{ marginRight: 6 }} />
+        El documento se genera con los datos completados arriba y se descarga directamente. El archivo Word puede editarse antes de imprimir.
+      </div>
     </div>
   );
 }
