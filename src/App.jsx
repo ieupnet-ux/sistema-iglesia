@@ -193,7 +193,7 @@ function Modal({ title, onClose, children, wide }) {
 }
 
 function Badge({ label, role }) {
-  const autoRole = { activo: "success", inactivo: "danger", visita: "warning", retirado: "danger", presente: "success", ausente: "danger", justificado: "warning", tarde: "accent" };
+  const autoRole = { activo: "success", inactivo: "danger", visita: "warning", retirado: "danger", fallecido: "danger", presente: "success", ausente: "danger", justificado: "warning", tarde: "accent" };
   const r = role || autoRole[label] || "accent";
   return (
     <span style={{ display: "inline-block", fontSize: 11, fontWeight: 500, padding: "2px 8px", borderRadius: 20, background: `var(--bg-${r})`, color: `var(--text-${r})`, border: `0.5px solid var(--border-${r})`, whiteSpace: "nowrap" }}>
@@ -608,6 +608,7 @@ function ModuloMiembros() {
           <option value="inactivo">Inactivo</option>
           <option value="visita">Visita</option>
           <option value="retirado">Retirado</option>
+          <option value="fallecido">Fallecido</option>
         </select>
         <select value={filtroTemplo} onChange={e => setFiltroTemplo(e.target.value)}>
           <option value="">Todos los templos</option>
@@ -879,7 +880,9 @@ function ModalMiembro({ mode, data, templos, cargos, grupos, onClose, onSaved })
               <option value="inactivo">Inactivo</option>
               <option value="visita">Visita</option>
               <option value="retirado">Retirado</option>
+              <option value="fallecido">Fallecido</option>
             </Sel>
+            <Inp label="Fecha de ingreso" type="date" value={form.fecha_ingreso || ""} onChange={e => set("fecha_ingreso", e.target.value)} disabled={isView} />
           </div>
 
           {/* Cargos */}
