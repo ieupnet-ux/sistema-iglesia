@@ -2586,11 +2586,52 @@ function ModuloVisitas() {
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
       const mx = 25, aw = 160;
-      let y = 25;
+      let y = 15;
+
+      // ── Cargar logo desde /logo-navy.png ─────────────────
+      const cargarLogoBase64 = () => new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          canvas.width = img.width; canvas.height = img.height;
+          canvas.getContext("2d").drawImage(img, 0, 0);
+          resolve(canvas.toDataURL("image/png"));
+        };
+        img.onerror = () => resolve(null);
+        img.src = "/logo-navy.png";
+      });
+
+      const logoB64 = await cargarLogoBase64();
+
+      // ── Encabezado con logo ───────────────────────────────
+      const dibujarEncabezado = (titulo, subtitulo) => {
+        // Logo a la izquierda
+        if (logoB64) {
+          try { doc.addImage(logoB64, "PNG", mx, y, 22, 22); } catch {}
+        }
+        // Nombre iglesia centrado
+        doc.setFontSize(14); doc.setFont("helvetica", "bold");
+        doc.text(datos.iglesia || "Unión Pentecostal", 105, y + 8, { align: "center" });
+        // Línea separadora
+        y += 26;
+        doc.setDrawColor(30, 45, 90);
+        doc.setLineWidth(0.5);
+        doc.line(mx, y, mx + aw, y);
+        y += 4;
+        // Título del documento
+        doc.setFontSize(12); doc.setFont("helvetica", "bold");
+        doc.text(subtitulo, 105, y, { align: "center" });
+        y += 8;
+        doc.setDrawColor(200, 200, 200);
+        doc.line(mx, y, mx + aw, y);
+        y += 6;
+      };
 
       const linea = (texto, alineacion = "left", bold = false, size = 10) => {
         doc.setFontSize(size);
         doc.setFont("helvetica", bold ? "bold" : "normal");
+        doc.setTextColor(30, 30, 30);
         if (alineacion === "center") {
           doc.text(texto, 105, y, { align: "center" });
         } else {
@@ -2603,11 +2644,22 @@ function ModuloVisitas() {
 
       const espacio = (n = 6) => { y += n; };
 
+      // ── Pie de página ─────────────────────────────────────
+      const dibujarPie = (numeroCarta) => {
+        const yPie = 280;
+        doc.setDrawColor(30, 45, 90);
+        doc.setLineWidth(0.3);
+        doc.line(mx, yPie, mx + aw, yPie);
+        doc.setFontSize(8); doc.setFont("helvetica", "normal");
+        doc.setTextColor(120, 120, 120);
+        doc.text(datos.iglesia || "Unión Pentecostal", mx, yPie + 4);
+        if (numeroCarta) doc.text(`N°: ${numeroCarta}`, mx + aw, yPie + 4, { align: "right" });
+        doc.text(`Generado: ${new Date().toLocaleDateString("es-ES")}`, 105, yPie + 4, { align: "center" });
+      };
+
       if (tipo === "acuse") {
         // ── ACUSE DE RECIBO ──
-        linea(datos.iglesia || "Unión Pentecostal", "center", true, 14);
-        linea("ACUSE DE RECIBO DE CARTA DE PRESENTACIÓN", "center", true, 11);
-        espacio();
+        dibujarEncabezado(datos.iglesia, "ACUSE DE RECIBO DE CARTA DE PRESENTACIÓN");
         linea(`${datos.ciudad || ""}, ${datos.fecha_acuse || new Date().toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })}`, "left", false, 10);
         espacio(8);
         linea(`Estimado/a Pastor/a ${datos.pastor_origen || ""},`, "left", false, 10);
@@ -2616,6 +2668,7 @@ function ModuloVisitas() {
         linea(`Por medio de la presente, la iglesia ${datos.iglesia || "Unión Pentecostal"} hace constar que hemos recibido la carta de presentación del/la hermano/a:`, "left", false, 10);
         espacio();
         linea(`NOMBRE: ${datos.nombres} ${datos.apellidos}`, "left", true, 11);
+        if (datos.numero_socio) linea(`N° de Socio: ${datos.numero_socio}`, "left", false, 10);
         espacio();
         linea(`Carta N°: ${datos.numero_carta_recibida || "___"}     Fecha: ${datos.fecha_carta_recibida ? new Date(datos.fecha_carta_recibida + "T12:00:00").toLocaleDateString("es-ES") : "___"}`, "left", false, 10);
         espacio();
@@ -2629,25 +2682,24 @@ function ModuloVisitas() {
         linea("_______________________________", "center", false, 10);
         linea(datos.pastor_firma || "Pastor/a", "center", false, 10);
         linea(datos.iglesia || "Unión Pentecostal", "center", false, 10);
-        if (datos.numero_acuse) { espacio(8); linea(`N° de acuse: ${datos.numero_acuse}`, "center", false, 9); }
+        dibujarPie(datos.numero_acuse);
 
       } else if (tipo === "recomendacion") {
         // ── CARTA DE RECOMENDACIÓN ──
-        linea(datos.iglesia || "Unión Pentecostal", "center", true, 14);
         const tipoTitulo = datos.tipo === "traslado" ? "CARTA DE TRASLADO" : datos.tipo === "visita_temporal" ? "CARTA DE VISITA TEMPORAL" : "CARTA DE RECOMENDACIÓN";
-        linea(tipoTitulo, "center", true, 11);
-        espacio();
+        dibujarEncabezado(datos.iglesia, tipoTitulo);
         linea(`${datos.ciudad || ""}, ${datos.fecha_emision || new Date().toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })}`, "left", false, 10);
         espacio(8);
         linea(`Estimado/a Pastor/a ${datos.pastor_destino || ""},`, "left", false, 10);
         linea(`${datos.iglesia_destino || ""}`, "left", false, 10);
-        linea(`${datos.ciudad_destino || ""}`, "left", false, 10);
+        if (datos.ciudad_destino) linea(datos.ciudad_destino, "left", false, 10);
         espacio();
         linea("Por medio de la presente, y con el gozo que produce la comunión de los santos, nos es grato presentarle al/la hermano/a:", "left", false, 10);
         espacio();
         linea(`NOMBRE: ${datos.nombres} ${datos.apellidos}`, "left", true, 11);
+        if (datos.numero_socio) linea(`N° de Socio: ${datos.numero_socio}`, "left", false, 10);
         espacio();
-        linea(`Quien es miembro activo de nuestra congregación y se caracteriza por su fidelidad a Dios, a su iglesia y a los principios bíblicos que nos unen como domésticos de la fe.`, "left", false, 10);
+        linea("Quien es miembro activo de nuestra congregación y se caracteriza por su fidelidad a Dios, a su iglesia y a los principios bíblicos que nos unen como domésticos de la fe.", "left", false, 10);
         espacio();
         if (datos.motivo) {
           linea("MOTIVO:", "left", true, 10);
@@ -2665,7 +2717,7 @@ function ModuloVisitas() {
         linea(datos.pastor_firma || "Pastor/a", "center", false, 10);
         linea(datos.cargo_pastor || "Pastor", "center", false, 10);
         linea(datos.iglesia || "Unión Pentecostal", "center", false, 10);
-        if (datos.numero_carta) { espacio(8); linea(`N° de carta: ${datos.numero_carta}`, "center", false, 9); }
+        dibujarPie(datos.numero_carta);
       }
 
       const apellido = datos.apellidos || "carta";
@@ -2906,6 +2958,7 @@ function ModalVisita({ modal, miembros, usuario, onClose, onSaved, onGenerarPDF 
       motivo: m.motivo,
       observaciones: m.observaciones,
       tipo: m.tipo,
+      numero_socio: form.numero_socio || m.numero_membresia || "",
     };
     onGenerarPDF("recomendacion", datos);
   };
@@ -2998,6 +3051,7 @@ function ModalVisita({ modal, miembros, usuario, onClose, onSaved, onGenerarPDF 
             <Inp label="Ciudad" value={form.ciudad || ""} onChange={e => set("ciudad", e.target.value)} />
             <Inp label="Fecha del acuse" value={form.fecha_acuse || new Date().toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })} onChange={e => set("fecha_acuse", e.target.value)} />
             <Inp label="N° de acuse" value={form.numero_acuse || ""} onChange={e => set("numero_acuse", e.target.value)} placeholder="Ej: ACU-001/2026" />
+            <Inp label="N° de socio del visitante" value={form.numero_socio || ""} onChange={e => set("numero_socio", e.target.value)} placeholder="Si tiene número asignado" />
             <Inp label="Nombre del pastor firmante" value={form.pastor_firma || ""} onChange={e => set("pastor_firma", e.target.value)} />
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 8 }}>
@@ -3021,6 +3075,8 @@ function ModalVisita({ modal, miembros, usuario, onClose, onSaved, onGenerarPDF 
           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
             <Inp label="Nombre de tu iglesia" value={form.iglesia || "Unión Pentecostal"} onChange={e => set("iglesia", e.target.value)} />
             <Inp label="Ciudad" value={form.ciudad || ""} onChange={e => set("ciudad", e.target.value)} />
+            <Inp label="N° de socio del miembro" value={form.numero_socio || modal.data?.numero_membresia || ""} onChange={e => set("numero_socio", e.target.value)} placeholder="N° de membresía" />
+            <div />
             <Inp label="Nombre del pastor firmante" value={form.pastor_firma || ""} onChange={e => set("pastor_firma", e.target.value)} />
             <Inp label="Cargo del firmante" value={form.cargo_pastor || "Pastor"} onChange={e => set("cargo_pastor", e.target.value)} />
           </div>
