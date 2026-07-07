@@ -318,6 +318,7 @@ const NAV_ITEMS = [
   { id: "asistencia", icon: "clipboard-check", label: "Asistencia", perm: "asistencia", role: "success" },
   { id: "historial", icon: "user-search", label: "Historial", perm: "asistencia", role: "warning" },
   { id: "tareas", icon: "checklist", label: "Tareas", perm: "asistencia", role: "danger" },
+  { id: "visitas", icon: "mail", label: "Visitas", perm: "config", role: "warning" },
   { id: "legajos", icon: "folder-open", label: "Legajos", perm: "config", role: "pro" },
   { id: "reportes", icon: "chart-bar", label: "Reportes", perm: "reportes", role: "danger" },
   { id: "config", icon: "settings", label: "Configuración", perm: "config", role: "accent" },
@@ -2542,6 +2543,498 @@ function ModalTarea({ mode, data, miembros, usuario, ESTADOS, PRIORIDADES, onClo
 }
 
 // ─────────────────────────────────────────────────────────────
+// MÓDULO VISITAS (Cartas de presentación y recomendación)
+// ─────────────────────────────────────────────────────────────
+function ModuloVisitas() {
+  const { usuario, toast } = useApp();
+  const isMobile = useIsMobile();
+  const [tab, setTab] = useState("entrantes");
+  const [entrantes, setEntrantes] = useState([]);
+  const [salientes, setSalientes] = useState([]);
+  const [miembros, setMiembros] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState(null);
+
+  const cargar = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [e, s, ms] = await Promise.all([
+        sb.query("visitas_entrantes", "?select=*,registrado_por:usuarios_sistema(nombre)&order=fecha_presentacion.desc"),
+        sb.query("visitas_salientes", "?select=*,miembros(id,nombres,apellidos),emitido_por:usuarios_sistema(nombre)&order=fecha_emision.desc"),
+        sb.query("miembros", "?select=id,nombres,apellidos&estado=eq.activo&order=apellidos.asc"),
+      ]);
+      setEntrantes(e); setSalientes(s); setMiembros(ms);
+    } catch (err) { toast(err.message, "error"); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { cargar(); }, [cargar]);
+
+  const TIPO_LABEL = { recomendacion: "Recomendación", traslado: "Traslado", visita_temporal: "Visita temporal" };
+
+  // ── Generador de PDF ────────────────────────────────────────
+  const generarPDF = async (tipo, datos) => {
+    try {
+      if (!window.jspdf) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement("script");
+          s.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+          s.onload = resolve; s.onerror = reject;
+          document.head.appendChild(s);
+        });
+      }
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const mx = 25, aw = 160;
+      let y = 25;
+
+      const linea = (texto, alineacion = "left", bold = false, size = 10) => {
+        doc.setFontSize(size);
+        doc.setFont("helvetica", bold ? "bold" : "normal");
+        if (alineacion === "center") {
+          doc.text(texto, 105, y, { align: "center" });
+        } else {
+          const split = doc.splitTextToSize(texto, aw);
+          doc.text(split, mx, y);
+          y += (split.length - 1) * (size * 0.4);
+        }
+        y += size * 0.45;
+      };
+
+      const espacio = (n = 6) => { y += n; };
+
+      if (tipo === "acuse") {
+        // ── ACUSE DE RECIBO ──
+        linea(datos.iglesia || "Unión Pentecostal", "center", true, 14);
+        linea("ACUSE DE RECIBO DE CARTA DE PRESENTACIÓN", "center", true, 11);
+        espacio();
+        linea(`${datos.ciudad || ""}, ${datos.fecha_acuse || new Date().toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })}`, "left", false, 10);
+        espacio(8);
+        linea(`Estimado/a Pastor/a ${datos.pastor_origen || ""},`, "left", false, 10);
+        linea(`${datos.iglesia_origen || ""}`, "left", false, 10);
+        espacio();
+        linea(`Por medio de la presente, la iglesia ${datos.iglesia || "Unión Pentecostal"} hace constar que hemos recibido la carta de presentación del/la hermano/a:`, "left", false, 10);
+        espacio();
+        linea(`NOMBRE: ${datos.nombres} ${datos.apellidos}`, "left", true, 11);
+        espacio();
+        linea(`Carta N°: ${datos.numero_carta_recibida || "___"}     Fecha: ${datos.fecha_carta_recibida ? new Date(datos.fecha_carta_recibida + "T12:00:00").toLocaleDateString("es-ES") : "___"}`, "left", false, 10);
+        espacio();
+        if (datos.observaciones) {
+          linea("OBSERVACIONES:", "left", true, 10);
+          linea(datos.observaciones, "left", false, 10);
+          espacio();
+        }
+        linea("El/la hermano/a ha sido recibido/a en nuestra congregación con gozo y le extendemos esta constancia como prueba de su presentación.", "left", false, 10);
+        espacio(16);
+        linea("_______________________________", "center", false, 10);
+        linea(datos.pastor_firma || "Pastor/a", "center", false, 10);
+        linea(datos.iglesia || "Unión Pentecostal", "center", false, 10);
+        if (datos.numero_acuse) { espacio(8); linea(`N° de acuse: ${datos.numero_acuse}`, "center", false, 9); }
+
+      } else if (tipo === "recomendacion") {
+        // ── CARTA DE RECOMENDACIÓN ──
+        linea(datos.iglesia || "Unión Pentecostal", "center", true, 14);
+        const tipoTitulo = datos.tipo === "traslado" ? "CARTA DE TRASLADO" : datos.tipo === "visita_temporal" ? "CARTA DE VISITA TEMPORAL" : "CARTA DE RECOMENDACIÓN";
+        linea(tipoTitulo, "center", true, 11);
+        espacio();
+        linea(`${datos.ciudad || ""}, ${datos.fecha_emision || new Date().toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })}`, "left", false, 10);
+        espacio(8);
+        linea(`Estimado/a Pastor/a ${datos.pastor_destino || ""},`, "left", false, 10);
+        linea(`${datos.iglesia_destino || ""}`, "left", false, 10);
+        linea(`${datos.ciudad_destino || ""}`, "left", false, 10);
+        espacio();
+        linea("Por medio de la presente, y con el gozo que produce la comunión de los santos, nos es grato presentarle al/la hermano/a:", "left", false, 10);
+        espacio();
+        linea(`NOMBRE: ${datos.nombres} ${datos.apellidos}`, "left", true, 11);
+        espacio();
+        linea(`Quien es miembro activo de nuestra congregación y se caracteriza por su fidelidad a Dios, a su iglesia y a los principios bíblicos que nos unen como domésticos de la fe.`, "left", false, 10);
+        espacio();
+        if (datos.motivo) {
+          linea("MOTIVO:", "left", true, 10);
+          linea(datos.motivo, "left", false, 10);
+          espacio();
+        }
+        if (datos.observaciones) {
+          linea("OBSERVACIONES:", "left", true, 10);
+          linea(datos.observaciones, "left", false, 10);
+          espacio();
+        }
+        linea("Le recomendamos cordialmente a este/a hermano/a y le pedimos lo/la reciba con el amor de Cristo.", "left", false, 10);
+        espacio(16);
+        linea("_______________________________", "center", false, 10);
+        linea(datos.pastor_firma || "Pastor/a", "center", false, 10);
+        linea(datos.cargo_pastor || "Pastor", "center", false, 10);
+        linea(datos.iglesia || "Unión Pentecostal", "center", false, 10);
+        if (datos.numero_carta) { espacio(8); linea(`N° de carta: ${datos.numero_carta}`, "center", false, 9); }
+      }
+
+      const apellido = datos.apellidos || "carta";
+      doc.save(`${tipo === "acuse" ? "Acuse" : "Carta_Recomendacion"}_${apellido}_${new Date().toISOString().split("T")[0]}.pdf`);
+      toast("PDF generado ✓", "ok");
+    } catch (e) { toast("Error al generar PDF: " + e.message, "error"); }
+  };
+
+  return (
+    <div>
+      <SectionHeader title="Visitas y cartas" icon="mail" role="warning" />
+
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+        {[
+          { id: "entrantes", icon: "mail-opened", label: "Visitas entrantes", badge: entrantes.length },
+          { id: "salientes", icon: "send", label: "Cartas emitidas", badge: salientes.length },
+        ].map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "8px 16px", borderRadius: 8, border: `0.5px solid ${tab === t.id ? "var(--border-warning)" : "var(--border)"}`, background: tab === t.id ? "var(--bg-warning)" : "transparent", color: tab === t.id ? "var(--text-warning)" : "var(--text-secondary)", fontSize: 13, fontFamily: "var(--font-sans)", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
+            <i className={`ti ti-${t.icon}`} style={{ fontSize: 15 }} />
+            {t.label}
+            <span style={{ background: tab === t.id ? "var(--text-warning)" : "var(--text-muted)", color: "white", borderRadius: 20, fontSize: 11, padding: "1px 7px", fontWeight: 500 }}>{t.badge}</span>
+          </button>
+        ))}
+        <div style={{ marginLeft: "auto" }}>
+          {tab === "entrantes" && <Btn icon="plus" variant="primary" small onClick={() => setModal({ tipo: "nueva_entrante" })}>Registrar visita</Btn>}
+          {tab === "salientes" && <Btn icon="send" variant="primary" small onClick={() => setModal({ tipo: "nueva_saliente" })}>Emitir carta</Btn>}
+        </div>
+      </div>
+
+      {loading ? <Spinner /> : (
+        <>
+          {/* VISITAS ENTRANTES */}
+          {tab === "entrantes" && (
+            <div>
+              {entrantes.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "48px 0", color: "var(--text-muted)" }}>
+                  <i className="ti ti-mail-opened" style={{ fontSize: 40, display: "block", marginBottom: 10 }} />
+                  No hay visitas registradas
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {entrantes.map(v => (
+                    <div key={v.id} style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 16 }}>
+                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 4 }}>{v.apellidos}, {v.nombres}</div>
+                          <div style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 4 }}>
+                            <i className="ti ti-building-church" style={{ marginRight: 4 }} />{v.iglesia_origen} {v.ciudad_origen ? `— ${v.ciudad_origen}` : ""}
+                          </div>
+                          {v.pastor_origen && <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Pastor: {v.pastor_origen}</div>}
+                          <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap", alignItems: "center" }}>
+                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Presentación: {fmtDate(v.fecha_presentacion)}</span>
+                            {v.numero_carta_recibida && <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Carta N°: {v.numero_carta_recibida}</span>}
+                            {v.acuse_emitido ? <Badge label="Acuse emitido" role="success" /> : <Badge label="Sin acuse" role="warning" />}
+                          </div>
+                          {v.observaciones && <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 6, fontStyle: "italic" }}>{v.observaciones}</div>}
+                        </div>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          <Btn small icon="edit" onClick={() => setModal({ tipo: "editar_entrante", data: v })} />
+                          <Btn small icon="file-type-pdf" variant="warning" onClick={() => setModal({ tipo: "acuse_pdf", data: v })}>
+                            {isMobile ? "" : "Acuse PDF"}
+                          </Btn>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* CARTAS SALIENTES */}
+          {tab === "salientes" && (
+            <div>
+              {salientes.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "48px 0", color: "var(--text-muted)" }}>
+                  <i className="ti ti-send" style={{ fontSize: 40, display: "block", marginBottom: 10 }} />
+                  No hay cartas emitidas
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {salientes.map(v => (
+                    <div key={v.id} style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 16 }}>
+                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 4 }}>
+                            {v.miembros ? `${v.miembros.apellidos}, ${v.miembros.nombres}` : `${v.apellidos || ""}, ${v.nombres || ""}`}
+                          </div>
+                          <div style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 4 }}>
+                            <i className="ti ti-send" style={{ marginRight: 4 }} />→ {v.iglesia_destino} {v.ciudad_destino ? `— ${v.ciudad_destino}` : ""}
+                          </div>
+                          {v.pastor_destino && <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Pastor destino: {v.pastor_destino}</div>}
+                          <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap", alignItems: "center" }}>
+                            <Badge label={TIPO_LABEL[v.tipo] || v.tipo} role="accent" />
+                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Emitida: {fmtDate(v.fecha_emision)}</span>
+                            {v.numero_carta && <span style={{ fontSize: 12, color: "var(--text-muted)" }}>N°: {v.numero_carta}</span>}
+                          </div>
+                          {v.motivo && <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 6 }}>{v.motivo}</div>}
+                        </div>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <Btn small icon="file-type-pdf" variant="accent" onClick={() => setModal({ tipo: "recomendacion_pdf", data: v })}>
+                            {isMobile ? "" : "Ver PDF"}
+                          </Btn>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Modales */}
+      {modal && (
+        <ModalVisita
+          modal={modal}
+          miembros={miembros}
+          usuario={usuario}
+          onClose={() => setModal(null)}
+          onSaved={() => { setModal(null); cargar(); }}
+          onGenerarPDF={generarPDF}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Modal de visitas ─────────────────────────────────────────
+function ModalVisita({ modal, miembros, usuario, onClose, onSaved, onGenerarPDF }) {
+  const { toast } = useApp();
+  const isMobile = useIsMobile();
+  const [saving, setSaving] = useState(false);
+  const TIPO_LABEL = { recomendacion: "Recomendación", traslado: "Traslado", visita_temporal: "Visita temporal" };
+  const [form, setForm] = useState({
+    iglesia: "Unión Pentecostal",
+    ciudad: "",
+    pastor_firma: "",
+    cargo_pastor: "Pastor",
+    ...modal.data,
+  });
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const titles = {
+    nueva_entrante: "Registrar visita entrante",
+    editar_entrante: "Editar visita entrante",
+    nueva_saliente: "Emitir carta de recomendación",
+    acuse_pdf: "Generar acuse de recibo",
+    recomendacion_pdf: "Generar carta de recomendación",
+  };
+
+  const handleSaveEntrante = async () => {
+    if (!form.nombres?.trim() || !form.apellidos?.trim() || !form.iglesia_origen?.trim()) {
+      toast("Nombre, apellido e iglesia de origen son requeridos", "warn"); return;
+    }
+    setSaving(true);
+    try {
+      const payload = {
+        nombres: form.nombres, apellidos: form.apellidos,
+        iglesia_origen: form.iglesia_origen, pastor_origen: form.pastor_origen || null,
+        ciudad_origen: form.ciudad_origen || null,
+        fecha_presentacion: form.fecha_presentacion || today(),
+        numero_carta_recibida: form.numero_carta_recibida || null,
+        fecha_carta_recibida: form.fecha_carta_recibida || null,
+        acuse_emitido: form.acuse_emitido || false,
+        fecha_acuse: form.fecha_acuse || null,
+        numero_acuse: form.numero_acuse || null,
+        observaciones: form.observaciones || null,
+        registrado_por: usuario?.id,
+      };
+      if (modal.data?.id) {
+        await sb.update("visitas_entrantes", modal.data.id, { ...payload, updated_at: new Date().toISOString() });
+      } else {
+        await sb.insert("visitas_entrantes", payload);
+      }
+      toast("Visita registrada ✓", "ok");
+      onSaved();
+    } catch (e) { toast(e.message, "error"); }
+    finally { setSaving(false); }
+  };
+
+  const handleSaveSaliente = async () => {
+    if (!form.iglesia_destino?.trim()) { toast("La iglesia de destino es requerida", "warn"); return; }
+    if (!form.nombres?.trim() && !form.miembro_id) { toast("Indicá el nombre o seleccioná un miembro", "warn"); return; }
+    setSaving(true);
+    try {
+      const miembroSel = form.miembro_id ? miembros.find(m => m.id === form.miembro_id) : null;
+      await sb.insert("visitas_salientes", {
+        miembro_id: form.miembro_id || null,
+        nombres: miembroSel ? miembroSel.nombres : form.nombres,
+        apellidos: miembroSel ? miembroSel.apellidos : form.apellidos,
+        iglesia_destino: form.iglesia_destino,
+        pastor_destino: form.pastor_destino || null,
+        ciudad_destino: form.ciudad_destino || null,
+        numero_carta: form.numero_carta || null,
+        fecha_emision: form.fecha_emision || today(),
+        motivo: form.motivo || null,
+        tipo: form.tipo || "recomendacion",
+        observaciones: form.observaciones || null,
+        emitido_por: usuario?.id,
+      });
+      toast("Carta registrada ✓", "ok");
+      onSaved();
+    } catch (e) { toast(e.message, "error"); }
+    finally { setSaving(false); }
+  };
+
+  const handleGenerarAcuse = () => {
+    const datos = {
+      ...form,
+      nombres: modal.data?.nombres,
+      apellidos: modal.data?.apellidos,
+      iglesia_origen: modal.data?.iglesia_origen,
+      pastor_origen: modal.data?.pastor_origen,
+      numero_carta_recibida: modal.data?.numero_carta_recibida,
+      fecha_carta_recibida: modal.data?.fecha_carta_recibida,
+    };
+    onGenerarPDF("acuse", datos);
+    // Marcar acuse como emitido
+    if (modal.data?.id && !modal.data?.acuse_emitido) {
+      sb.update("visitas_entrantes", modal.data.id, { acuse_emitido: true, fecha_acuse: today(), updated_at: new Date().toISOString() });
+    }
+  };
+
+  const handleGenerarRecomendacion = () => {
+    const m = modal.data;
+    const datos = {
+      ...form,
+      nombres: m.miembros?.nombres || m.nombres,
+      apellidos: m.miembros?.apellidos || m.apellidos,
+      iglesia_destino: m.iglesia_destino,
+      pastor_destino: m.pastor_destino,
+      ciudad_destino: m.ciudad_destino,
+      numero_carta: m.numero_carta,
+      fecha_emision: m.fecha_emision ? new Date(m.fecha_emision + "T12:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" }) : null,
+      motivo: m.motivo,
+      observaciones: m.observaciones,
+      tipo: m.tipo,
+    };
+    onGenerarPDF("recomendacion", datos);
+  };
+
+  return (
+    <Modal title={titles[modal.tipo]} onClose={onClose} wide={modal.tipo === "acuse_pdf" || modal.tipo === "recomendacion_pdf"}>
+
+      {/* NUEVA / EDITAR ENTRANTE */}
+      {(modal.tipo === "nueva_entrante" || modal.tipo === "editar_entrante") && (
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-secondary)", marginBottom: 12 }}>Datos del visitante</div>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
+            <Inp label="Nombres *" value={form.nombres || ""} onChange={e => set("nombres", e.target.value)} />
+            <Inp label="Apellidos *" value={form.apellidos || ""} onChange={e => set("apellidos", e.target.value)} />
+            <Inp label="Iglesia de origen *" value={form.iglesia_origen || ""} onChange={e => set("iglesia_origen", e.target.value)} placeholder="Nombre de la iglesia que lo presenta" />
+            <Inp label="Pastor de origen" value={form.pastor_origen || ""} onChange={e => set("pastor_origen", e.target.value)} />
+            <Inp label="Ciudad de origen" value={form.ciudad_origen || ""} onChange={e => set("ciudad_origen", e.target.value)} />
+            <Inp label="Fecha de presentación" type="date" value={form.fecha_presentacion || today()} onChange={e => set("fecha_presentacion", e.target.value)} />
+            <Inp label="N° de carta recibida" value={form.numero_carta_recibida || ""} onChange={e => set("numero_carta_recibida", e.target.value)} />
+            <Inp label="Fecha de la carta" type="date" value={form.fecha_carta_recibida || ""} onChange={e => set("fecha_carta_recibida", e.target.value)} />
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 4 }}>Observaciones</label>
+            <textarea value={form.observaciones || ""} onChange={e => set("observaciones", e.target.value)} rows={3} placeholder="Observaciones sobre la visita..." style={{ width: "100%", boxSizing: "border-box", resize: "vertical", borderRadius: 8, border: "0.5px solid var(--border)", padding: "8px 10px", fontSize: 14, fontFamily: "var(--font-sans)", background: "var(--surface-2)", color: "var(--text-primary)" }} />
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14, padding: "10px 12px", background: "var(--surface-1)", borderRadius: 8 }}>
+            <input type="checkbox" id="acuse_emitido" checked={form.acuse_emitido || false} onChange={e => set("acuse_emitido", e.target.checked)} style={{ width: 16, height: 16 }} />
+            <label htmlFor="acuse_emitido" style={{ fontSize: 13, color: "var(--text-secondary)", cursor: "pointer" }}>Acuse de recibo ya emitido</label>
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+            <Btn onClick={onClose}>Cancelar</Btn>
+            <Btn variant="primary" icon="device-floppy" loading={saving} onClick={handleSaveEntrante}>Guardar</Btn>
+          </div>
+        </div>
+      )}
+
+      {/* NUEVA SALIENTE */}
+      {modal.tipo === "nueva_saliente" && (
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-secondary)", marginBottom: 12 }}>Miembro que viaja</div>
+          <Sel label="Seleccionar miembro (o completar manualmente abajo)" value={form.miembro_id || ""} onChange={e => set("miembro_id", e.target.value)}>
+            <option value="">— Completar manualmente —</option>
+            {miembros.map(m => <option key={m.id} value={m.id}>{m.apellidos}, {m.nombres}</option>)}
+          </Sel>
+          {!form.miembro_id && (
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
+              <Inp label="Nombres" value={form.nombres || ""} onChange={e => set("nombres", e.target.value)} />
+              <Inp label="Apellidos" value={form.apellidos || ""} onChange={e => set("apellidos", e.target.value)} />
+            </div>
+          )}
+          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-secondary)", margin: "16px 0 12px" }}>Iglesia de destino</div>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
+            <Inp label="Iglesia de destino *" value={form.iglesia_destino || ""} onChange={e => set("iglesia_destino", e.target.value)} />
+            <Inp label="Pastor de destino" value={form.pastor_destino || ""} onChange={e => set("pastor_destino", e.target.value)} />
+            <Inp label="Ciudad de destino" value={form.ciudad_destino || ""} onChange={e => set("ciudad_destino", e.target.value)} />
+            <Sel label="Tipo de carta" value={form.tipo || "recomendacion"} onChange={e => set("tipo", e.target.value)}>
+              <option value="recomendacion">Carta de recomendación</option>
+              <option value="traslado">Carta de traslado</option>
+              <option value="visita_temporal">Visita temporal</option>
+            </Sel>
+            <Inp label="Fecha de emisión" type="date" value={form.fecha_emision || today()} onChange={e => set("fecha_emision", e.target.value)} />
+            <Inp label="N° de carta" value={form.numero_carta || ""} onChange={e => set("numero_carta", e.target.value)} placeholder="Ej: 001/2026" />
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 4 }}>Motivo</label>
+            <textarea value={form.motivo || ""} onChange={e => set("motivo", e.target.value)} rows={2} placeholder="Motivo del viaje..." style={{ width: "100%", boxSizing: "border-box", resize: "vertical", borderRadius: 8, border: "0.5px solid var(--border)", padding: "8px 10px", fontSize: 14, fontFamily: "var(--font-sans)", background: "var(--surface-2)", color: "var(--text-primary)" }} />
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 4 }}>Observaciones</label>
+            <textarea value={form.observaciones || ""} onChange={e => set("observaciones", e.target.value)} rows={2} style={{ width: "100%", boxSizing: "border-box", resize: "vertical", borderRadius: 8, border: "0.5px solid var(--border)", padding: "8px 10px", fontSize: 14, fontFamily: "var(--font-sans)", background: "var(--surface-2)", color: "var(--text-primary)" }} />
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+            <Btn onClick={onClose}>Cancelar</Btn>
+            <Btn variant="primary" icon="send" loading={saving} onClick={handleSaveSaliente}>Registrar carta</Btn>
+          </div>
+        </div>
+      )}
+
+      {/* ACUSE DE RECIBO PDF */}
+      {modal.tipo === "acuse_pdf" && (
+        <div>
+          <div style={{ background: "var(--surface-1)", borderRadius: 10, padding: 14, marginBottom: 16 }}>
+            <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>{modal.data?.apellidos}, {modal.data?.nombres}</div>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>Iglesia: {modal.data?.iglesia_origen} {modal.data?.ciudad_origen ? `— ${modal.data.ciudad_origen}` : ""}</div>
+            {modal.data?.observaciones && <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 4, fontStyle: "italic" }}>{modal.data.observaciones}</div>}
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-secondary)", marginBottom: 12 }}>Datos para el acuse</div>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
+            <Inp label="Nombre de tu iglesia" value={form.iglesia || "Unión Pentecostal"} onChange={e => set("iglesia", e.target.value)} />
+            <Inp label="Ciudad" value={form.ciudad || ""} onChange={e => set("ciudad", e.target.value)} />
+            <Inp label="Fecha del acuse" value={form.fecha_acuse || new Date().toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })} onChange={e => set("fecha_acuse", e.target.value)} />
+            <Inp label="N° de acuse" value={form.numero_acuse || ""} onChange={e => set("numero_acuse", e.target.value)} placeholder="Ej: ACU-001/2026" />
+            <Inp label="Nombre del pastor firmante" value={form.pastor_firma || ""} onChange={e => set("pastor_firma", e.target.value)} />
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 8 }}>
+            <Btn onClick={onClose}>Cancelar</Btn>
+            <Btn variant="danger" icon="file-type-pdf" onClick={handleGenerarAcuse}>Generar PDF</Btn>
+          </div>
+        </div>
+      )}
+
+      {/* CARTA RECOMENDACIÓN PDF */}
+      {modal.tipo === "recomendacion_pdf" && (
+        <div>
+          <div style={{ background: "var(--surface-1)", borderRadius: 10, padding: 14, marginBottom: 16 }}>
+            <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>
+              {modal.data?.miembros ? `${modal.data.miembros.apellidos}, ${modal.data.miembros.nombres}` : `${modal.data?.apellidos}, ${modal.data?.nombres}`}
+            </div>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>→ {modal.data?.iglesia_destino} {modal.data?.ciudad_destino ? `— ${modal.data.ciudad_destino}` : ""}</div>
+            <Badge label={TIPO_LABEL[modal.data?.tipo] || modal.data?.tipo} role="accent" />
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-secondary)", marginBottom: 12 }}>Datos para la carta</div>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
+            <Inp label="Nombre de tu iglesia" value={form.iglesia || "Unión Pentecostal"} onChange={e => set("iglesia", e.target.value)} />
+            <Inp label="Ciudad" value={form.ciudad || ""} onChange={e => set("ciudad", e.target.value)} />
+            <Inp label="Nombre del pastor firmante" value={form.pastor_firma || ""} onChange={e => set("pastor_firma", e.target.value)} />
+            <Inp label="Cargo del firmante" value={form.cargo_pastor || "Pastor"} onChange={e => set("cargo_pastor", e.target.value)} />
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 8 }}>
+            <Btn onClick={onClose}>Cancelar</Btn>
+            <Btn variant="danger" icon="file-type-pdf" onClick={handleGenerarRecomendacion}>Generar PDF</Btn>
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // MÓDULO LEGAJOS
 // ─────────────────────────────────────────────────────────────
 function ModuloLegajos() {
@@ -3377,7 +3870,7 @@ export default function App() {
     </AppCtx.Provider>
   );
 
-  const PAGES = { dashboard: Dashboard, miembros: ModuloMiembros, asistencia: ModuloAsistencia, historial: ModuloHistorial, tareas: ModuloTareas, legajos: ModuloLegajos, reportes: ModuloReportes, config: ModuloConfig };
+  const PAGES = { dashboard: Dashboard, miembros: ModuloMiembros, asistencia: ModuloAsistencia, historial: ModuloHistorial, tareas: ModuloTareas, visitas: ModuloVisitas, legajos: ModuloLegajos, reportes: ModuloReportes, config: ModuloConfig };
   const PageComp = PAGES[page] || Dashboard;
   const currentNav = NAV_ITEMS.find(n => n.id === page);
 
