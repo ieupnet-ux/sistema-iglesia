@@ -949,6 +949,16 @@ function ModuloAsistencia() {
   const [asistencia, setAsistencia] = useState([]);
   const [loading, setLoading] = useState(false);
   const [guardando, setGuardando] = useState(false);
+  const [tabAsistencia, setTabAsistencia] = useState("tomar"); // "tomar" | "historial"
+
+  // Historial de reuniones
+  const [historialReuniones, setHistorialReuniones] = useState([]);
+  const [loadingHistorial, setLoadingHistorial] = useState(false);
+  const [reunionSeleccionada, setReunionSeleccionada] = useState(null);
+  const [asistenciaReunion, setAsistenciaReunion] = useState([]);
+  const [filtroHistorialTemplo, setFiltroHistorialTemplo] = useState("");
+  const [filtroHistorialDesde, setFiltroHistorialDesde] = useState(new Date(Date.now() - 30*86400000).toISOString().split("T")[0]);
+  const [filtroHistorialHasta, setFiltroHistorialHasta] = useState(today());
 
   // Filtros selección de sesión
   const [filtroTemplo, setFiltroTemplo] = useState("");
@@ -976,6 +986,56 @@ function ModuloAsistencia() {
       } catch (e) { toast(e.message, "error"); }
     })();
   }, []);
+
+  const cargarHistorialReuniones = async () => {
+    setLoadingHistorial(true);
+    try {
+      let q = `?fecha=gte.${filtroHistorialDesde}&fecha=lte.${filtroHistorialHasta}&select=*,tipos_reunion(nombre),templos(nombre)&order=fecha.desc`;
+      if (filtroHistorialTemplo) q += `&templo_id=eq.${filtroHistorialTemplo}`;
+      const rs = await sb.query("reuniones", q);
+      setHistorialReuniones(rs);
+      setReunionSeleccionada(null);
+      setAsistenciaReunion([]);
+    } catch (e) { toast(e.message, "error"); }
+    finally { setLoadingHistorial(false); }
+  };
+
+  const cargarAsistenciaReunion = async (reunion) => {
+    setReunionSeleccionada(reunion);
+    try {
+      const as = await sb.query("asistencia", `?reunion_id=eq.${reunion.id}&select=*,miembros(id,nombres,apellidos,foto_url)&order=miembros(apellidos).asc`);
+      setAsistenciaReunion(as);
+    } catch (e) { toast(e.message, "error"); }
+  };
+
+  const cambiarEstadoAsistencia = async (asistenciaId, nuevoEstado) => {
+    try {
+      await sb.update("asistencia", asistenciaId, { estado: nuevoEstado, updated_at: new Date().toISOString() });
+      setAsistenciaReunion(prev => prev.map(a => a.id === asistenciaId ? { ...a, estado: nuevoEstado } : a));
+      toast("Estado actualizado ✓", "ok");
+    } catch (e) { toast(e.message, "error"); }
+  };
+
+  const borrarRegistroAsistencia = async (asistenciaId, nombreMiembro) => {
+    if (!window.confirm(`¿Borrar el registro de asistencia de ${nombreMiembro}?`)) return;
+    try {
+      await sb.delete("asistencia", asistenciaId);
+      setAsistenciaReunion(prev => prev.filter(a => a.id !== asistenciaId));
+      toast("Registro eliminado ✓", "ok");
+    } catch (e) { toast(e.message, "error"); }
+  };
+
+  const borrarReunionCompleta = async (reunion) => {
+    if (!window.confirm(`¿Borrar la reunión "${reunion.tipos_reunion?.nombre}" del ${fmtDate(reunion.fecha)} y TODA su asistencia? Esta acción no se puede deshacer.`)) return;
+    try {
+      // Borrar asistencia primero
+      await fetch(`${sb.url}/rest/v1/asistencia?reunion_id=eq.${reunion.id}`, { method: "DELETE", headers: sb.headers({ Prefer: "" }) });
+      await sb.delete("reuniones", reunion.id);
+      setHistorialReuniones(prev => prev.filter(r => r.id !== reunion.id));
+      if (reunionSeleccionada?.id === reunion.id) { setReunionSeleccionada(null); setAsistenciaReunion([]); }
+      toast("Reunión eliminada ✓", "ok");
+    } catch (e) { toast(e.message, "error"); }
+  };
 
   const abrirSesion = async () => {
     if (!filtroTipoReunion) { toast("Selecciona el tipo de reunión", "warn"); return; }
@@ -1149,9 +1209,115 @@ function ModuloAsistencia() {
 
   return (
     <div>
-      <SectionHeader title="Tomar asistencia" icon="clipboard-check" role="success" />
+      <SectionHeader title="Asistencia" icon="clipboard-check" role="success" />
 
-      {!sesionAbierta ? (
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+        {[
+          { id: "tomar", icon: "clipboard-check", label: "Tomar asistencia" },
+          { id: "historial", icon: "history", label: "Historial de reuniones" },
+        ].map(t => (
+          <button key={t.id} onClick={() => { setTabAsistencia(t.id); if (t.id === "historial") cargarHistorialReuniones(); }} style={{ padding: "8px 16px", borderRadius: 8, border: `0.5px solid ${tabAsistencia === t.id ? "var(--border-success)" : "var(--border)"}`, background: tabAsistencia === t.id ? "var(--bg-success)" : "transparent", color: tabAsistencia === t.id ? "var(--text-success)" : "var(--text-secondary)", fontSize: 13, fontFamily: "var(--font-sans)", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+            <i className={`ti ti-${t.icon}`} style={{ fontSize: 15 }} />
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tabAsistencia === "historial" && (
+        <div>
+          {/* Filtros historial */}
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr auto", gap: 10, marginBottom: 16, alignItems: "flex-end" }}>
+            <div>
+              <label style={{ display: "block", fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>Desde</label>
+              <input type="date" value={filtroHistorialDesde} onChange={e => setFiltroHistorialDesde(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>Hasta</label>
+              <input type="date" value={filtroHistorialHasta} onChange={e => setFiltroHistorialHasta(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
+            </div>
+            <select value={filtroHistorialTemplo} onChange={e => setFiltroHistorialTemplo(e.target.value)}>
+              <option value="">Todos los templos</option>
+              {templos.map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}
+            </select>
+            <Btn icon="search" variant="primary" small onClick={cargarHistorialReuniones} loading={loadingHistorial}>Buscar</Btn>
+          </div>
+
+          {loadingHistorial ? <Spinner /> : (
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : reunionSeleccionada ? "1fr 1fr" : "1fr", gap: 16 }}>
+              {/* Lista de reuniones */}
+              <div>
+                {historialReuniones.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "32px 0", color: "var(--text-muted)", fontSize: 13 }}>
+                    <i className="ti ti-calendar-off" style={{ fontSize: 32, display: "block", marginBottom: 8 }} />
+                    No hay reuniones en ese período
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {historialReuniones.map(r => (
+                      <div key={r.id} style={{ background: reunionSeleccionada?.id === r.id ? "var(--bg-success)" : "var(--surface-2)", border: `0.5px solid ${reunionSeleccionada?.id === r.id ? "var(--border-success)" : "var(--border)"}`, borderRadius: 10, padding: "12px 14px", cursor: "pointer" }}
+                        onClick={() => cargarAsistenciaReunion(r)}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div>
+                            <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>{r.tipos_reunion?.nombre}</div>
+                            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                              {fmtDate(r.fecha)} {r.hora ? `· ${r.hora.slice(0,5)}` : ""} · {r.templos?.nombre || "Todos los templos"}
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", gap: 6 }} onClick={e => e.stopPropagation()}>
+                            <Btn small icon="eye" onClick={() => cargarAsistenciaReunion(r)} title="Ver asistencia" />
+                            <Btn small icon="trash" variant="danger" onClick={() => borrarReunionCompleta(r)} title="Eliminar reunión completa" />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Asistencia de la reunión seleccionada */}
+              {reunionSeleccionada && (
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 12, color: "var(--text-primary)" }}>
+                    <i className="ti ti-users" style={{ marginRight: 6, color: "var(--text-success)" }} />
+                    {reunionSeleccionada.tipos_reunion?.nombre} — {fmtDate(reunionSeleccionada.fecha)}
+                    <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: 8 }}>({asistenciaReunion.length} registros)</span>
+                  </div>
+                  {asistenciaReunion.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: 24, color: "var(--text-muted)", fontSize: 13 }}>Sin registros de asistencia</div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {asistenciaReunion.map(a => {
+                        const ESTADOS_AS = [
+                          { val: "presente", role: "success" },
+                          { val: "ausente", role: "danger" },
+                          { val: "justificado", role: "warning" },
+                          { val: "tarde", role: "accent" },
+                        ];
+                        return (
+                          <div key={a.id} style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10 }}>
+                            <Avatar foto={a.miembros?.foto_url} nombre={`${a.miembros?.nombres} ${a.miembros?.apellidos}`} size={30} />
+                            <div style={{ flex: 1, fontSize: 13, color: "var(--text-primary)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {a.miembros?.apellidos}, {a.miembros?.nombres}
+                            </div>
+                            {/* Selector de estado */}
+                            <select value={a.estado} onChange={e => cambiarEstadoAsistencia(a.id, e.target.value)} style={{ fontSize: 12, padding: "3px 6px", borderRadius: 6, border: "0.5px solid var(--border)", background: "var(--surface-1)", color: "var(--text-primary)", cursor: "pointer" }}>
+                              {ESTADOS_AS.map(e => <option key={e.val} value={e.val}>{e.val.charAt(0).toUpperCase() + e.val.slice(1)}</option>)}
+                            </select>
+                            <Btn small icon="trash" variant="danger" onClick={() => borrarRegistroAsistencia(a.id, `${a.miembros?.nombres} ${a.miembros?.apellidos}`)} title="Borrar este registro" />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {tabAsistencia === "tomar" && (
         <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: isMobile ? 16 : 24, maxWidth: 600 }}>
           <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 16, color: "var(--text-primary)" }}>Configurar sesión de asistencia</div>
           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
@@ -1242,6 +1408,7 @@ function ModuloAsistencia() {
             </Btn>
           </div>
         </div>
+      )}
       )}
     </div>
   );
