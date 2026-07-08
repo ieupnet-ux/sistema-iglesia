@@ -1318,6 +1318,8 @@ function ModuloAsistencia() {
       )}
 
       {tabAsistencia === "tomar" && (
+        <div>
+        {!sesionAbierta ? (
         <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: isMobile ? 16 : 24, maxWidth: 600 }}>
           <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 16, color: "var(--text-primary)" }}>Configurar sesión de asistencia</div>
           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
@@ -1409,6 +1411,7 @@ function ModuloAsistencia() {
           </div>
         </div>
       )}
+        </div>
       )}
     </div>
   );
