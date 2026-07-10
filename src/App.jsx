@@ -1451,13 +1451,19 @@ function ModuloReportes() {
       if (filtros.tipo_reunion_id) qR += `&tipo_reunion_id=eq.${filtros.tipo_reunion_id}`;
       qR += "&order=fecha.asc";
 
-      const reuniones = await sb.query("reuniones", qR);
-      if (!reuniones.length) { toast("No hay reuniones en ese período", "warn"); setLoading(false); return; }
+      const todasReuniones = await sb.query("reuniones", qR);
+      if (!todasReuniones.length) { toast("No hay reuniones en ese período", "warn"); setLoading(false); return; }
 
-      const reunionIds = reuniones.map(r => r.id).join(",");
+      const reunionIds = todasReuniones.map(r => r.id).join(",");
       const asistencia = await sb.query("asistencia", `?reunion_id=in.(${reunionIds})&select=reunion_id,estado`);
 
-      // Agrupar por fecha
+      if (!asistencia.length) { toast("No hay registros de asistencia en ese período", "warn"); setLoading(false); return; }
+
+      // Solo incluir reuniones donde SE TOMÓ asistencia (tienen al menos 1 registro)
+      const reunionesConAsistencia = new Set(asistencia.map(a => a.reunion_id));
+      const reuniones = todasReuniones.filter(r => reunionesConAsistencia.has(r.id));
+
+      // Agrupar por fecha — solo reuniones con asistencia real
       const porFecha = {};
       reuniones.forEach(r => {
         const fecha = r.fecha;
@@ -1483,7 +1489,7 @@ function ModuloReportes() {
         pct: d.total ? Math.round(d.presente / d.total * 100) : 0,
       }));
 
-      // Por tipo reunión
+      // Por tipo reunión — solo de reuniones con asistencia
       const porTipo = {};
       asistencia.forEach(a => {
         const r = reuniones.find(x => x.id === a.reunion_id);
