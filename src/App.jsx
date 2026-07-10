@@ -1807,8 +1807,19 @@ function ModuloHistorial() {
   const cargarHistorial = async (miembroId, tipoId) => {
     setLoading(true);
     try {
-      // Reuniones en el período
-      let qR = `?fecha=gte.${desde}&fecha=lte.${hasta}&select=id,fecha,hora,tipos_reunion(id,nombre),templos(nombre)&order=fecha.desc`;
+      // Solo traer reuniones donde SE TOMÓ asistencia (tienen al menos 1 registro)
+      // Primero buscar los IDs de reuniones donde el miembro tiene registro
+      let qA = `?miembro_id=eq.${miembroId}&select=reunion_id,estado,observacion,created_at`;
+      const todasAsistencias = await sb.query("asistencia", qA);
+
+      if (!todasAsistencias.length) {
+        setHistorial([]); setStats(null); setChartData([]);
+        setLoading(false); return;
+      }
+
+      // Traer solo las reuniones que están en el período y tipo seleccionado
+      const reunionIds = todasAsistencias.map(a => a.reunion_id).join(",");
+      let qR = `?id=in.(${reunionIds})&fecha=gte.${desde}&fecha=lte.${hasta}&select=id,fecha,hora,tipos_reunion(id,nombre),templos(nombre)&order=fecha.desc`;
       if (tipoId || filtroTipo) qR += `&tipo_reunion_id=eq.${tipoId || filtroTipo}`;
 
       const reuniones = await sb.query("reuniones", qR);
@@ -1817,16 +1828,11 @@ function ModuloHistorial() {
         setLoading(false); return;
       }
 
-      const ids = reuniones.map(r => r.id).join(",");
-      const asistencia = await sb.query("asistencia",
-        `?miembro_id=eq.${miembroId}&reunion_id=in.(${ids})&select=reunion_id,estado,observacion,created_at`
-      );
-
       // Mapear asistencia por reunion_id
       const asistMap = {};
-      asistencia.forEach(a => { asistMap[a.reunion_id] = a; });
+      todasAsistencias.forEach(a => { asistMap[a.reunion_id] = a; });
 
-      // Combinar: para cada reunión, el miembro estuvo ausente si no hay registro
+      // Armar filas — solo reuniones donde hay registro real
       const filas = reuniones.map(r => ({
         ...r,
         estado: asistMap[r.id]?.estado || "ausente",
@@ -1847,7 +1853,7 @@ function ModuloHistorial() {
       // Chart: agrupado por mes
       const porMes = {};
       filas.forEach(f => {
-        const mes = f.fecha.slice(0, 7); // YYYY-MM
+        const mes = f.fecha.slice(0, 7);
         if (!porMes[mes]) porMes[mes] = { mes, presente: 0, ausente: 0, justificado: 0, tarde: 0, total: 0 };
         porMes[mes][f.estado]++;
         porMes[mes].total++;
