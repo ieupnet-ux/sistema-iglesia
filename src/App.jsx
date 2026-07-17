@@ -318,6 +318,7 @@ const NAV_ITEMS = [
   { id: "asistencia", icon: "clipboard-check", label: "Asistencia", perm: "asistencia", role: "success" },
   { id: "historial", icon: "user-search", label: "Historial", perm: "asistencia", role: "warning" },
   { id: "tareas", icon: "checklist", label: "Tareas", perm: "asistencia", role: "danger" },
+  { id: "estadisticas_tareas", icon: "chart-dots-3", label: "Estadísticas", perm: "asistencia", role: "pro" },
   { id: "visitas", icon: "mail", label: "Visitas", perm: "config", role: "warning" },
   { id: "legajos", icon: "folder-open", label: "Legajos", perm: "config", role: "pro" },
   { id: "reportes", icon: "chart-bar", label: "Reportes", perm: "reportes", role: "danger" },
@@ -2109,6 +2110,314 @@ function ModuloHistorial() {
 // ─────────────────────────────────────────────────────────────
 // MÓDULO TAREAS
 // ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// MÓDULO ESTADÍSTICAS DE TAREAS
+// ─────────────────────────────────────────────────────────────
+function ModuloEstadisticasTareas() {
+  const { toast } = useApp();
+  const isMobile = useIsMobile();
+  const [loading, setLoading] = useState(true);
+  const [datos, setDatos] = useState(null);
+  const [filtroDesde, setFiltroDesde] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split("T")[0]);
+  const [filtroHasta, setFiltroHasta] = useState(today());
+  const [filtroMiembro, setFiltroMiembro] = useState("");
+  const [miembros, setMiembros] = useState([]);
+
+  useEffect(() => {
+    sb.query("miembros", "?select=id,nombres,apellidos&estado=neq.retirado&order=apellidos.asc")
+      .then(setMiembros).catch(() => {});
+  }, []);
+
+  const COLORES_ESTADO = { pendiente: "#F59E0B", en_progreso: "#3B82F6", completada: "#10B981", cancelada: "#EF4444" };
+  const COLORES_PRIO = { alta: "#EF4444", media: "#F59E0B", baja: "#10B981" };
+  const COLORES_BAR = ["#178CC7","#17A57A","#D85A30","#8B5CF6","#F59E0B","#EF4444","#10B981","#3B82F6","#EC4899","#14B8A6"];
+
+  const cargar = useCallback(async () => {
+    setLoading(true);
+    try {
+      let qT = `?fecha_vencimiento=gte.${filtroDesde}&fecha_vencimiento=lte.${filtroHasta}&select=*,miembros(id,nombres,apellidos)`;
+      if (filtroMiembro) qT += `&miembro_id=eq.${filtroMiembro}`;
+      const tareas = await sb.query("tareas", qT);
+
+      if (!tareas.length) { setDatos(null); setLoading(false); return; }
+
+      // ── Totales por estado ───────────────────────────────
+      const porEstado = { pendiente: 0, en_progreso: 0, completada: 0, cancelada: 0 };
+      tareas.forEach(t => { if (porEstado[t.estado] !== undefined) porEstado[t.estado]++; });
+      const pieEstado = Object.entries(porEstado).map(([name, value]) => ({ name, value, label: { pendiente: "Pendiente", en_progreso: "En progreso", completada: "Completada", cancelada: "Cancelada" }[name] }));
+
+      // ── Totales por prioridad ────────────────────────────
+      const porPrioridad = { alta: 0, media: 0, baja: 0 };
+      tareas.forEach(t => { if (porPrioridad[t.prioridad] !== undefined) porPrioridad[t.prioridad]++; });
+      const piePrioridad = Object.entries(porPrioridad).map(([name, value]) => ({ name, value, label: { alta: "Alta", media: "Media", baja: "Baja" }[name] }));
+
+      // ── Tendencia mensual (creadas vs completadas) ───────
+      const porMes = {};
+      tareas.forEach(t => {
+        const mes = t.created_at.slice(0, 7);
+        if (!porMes[mes]) porMes[mes] = { mes, creadas: 0, completadas: 0, canceladas: 0, pendientes: 0 };
+        porMes[mes].creadas++;
+        if (t.estado === "completada") porMes[mes].completadas++;
+        if (t.estado === "cancelada") porMes[mes].canceladas++;
+        if (t.estado === "pendiente" || t.estado === "en_progreso") porMes[mes].pendientes++;
+      });
+      const lineData = Object.values(porMes)
+        .sort((a, b) => a.mes.localeCompare(b.mes))
+        .map(d => ({
+          ...d,
+          label: new Date(d.mes + "-15").toLocaleDateString("es-ES", { month: "short", year: "2-digit" }),
+          pctCompletadas: d.creadas ? Math.round(d.completadas / d.creadas * 100) : 0,
+        }));
+
+      // ── Ranking: más tareas asignadas ────────────────────
+      const asignadas = {};
+      tareas.forEach(t => {
+        if (!t.miembros) return;
+        const key = t.miembro_id;
+        if (!asignadas[key]) asignadas[key] = { nombre: `${t.miembros.apellidos}, ${t.miembros.nombres}`, total: 0, completadas: 0, pendientes: 0, canceladas: 0 };
+        asignadas[key].total++;
+        if (t.estado === "completada") asignadas[key].completadas++;
+        if (t.estado === "pendiente" || t.estado === "en_progreso") asignadas[key].pendientes++;
+        if (t.estado === "cancelada") asignadas[key].canceladas++;
+      });
+
+      const rankingAsignadas = Object.values(asignadas)
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 10)
+        .map(d => ({ ...d, pct: d.total ? Math.round(d.completadas / d.total * 100) : 0 }));
+
+      const rankingCompletadas = Object.values(asignadas)
+        .filter(d => d.completadas > 0)
+        .sort((a, b) => b.completadas - a.completadas)
+        .slice(0, 10);
+
+      // ── Tareas vencidas ──────────────────────────────────
+      const hoy = today();
+      const vencidas = tareas.filter(t => t.fecha_vencimiento && t.fecha_vencimiento < hoy && t.estado !== "completada" && t.estado !== "cancelada").length;
+      const sinFecha = tareas.filter(t => !t.fecha_vencimiento && t.estado !== "completada" && t.estado !== "cancelada").length;
+
+      // ── Tiempo promedio de completado (días) ─────────────
+      const completadas = tareas.filter(t => t.estado === "completada" && t.fecha_vencimiento);
+      const tiempoPromedio = completadas.length > 0
+        ? Math.round(completadas.reduce((sum, t) => {
+            const diff = (new Date(t.updated_at) - new Date(t.created_at)) / 86400000;
+            return sum + diff;
+          }, 0) / completadas.length)
+        : null;
+
+      setDatos({ tareas, porEstado, porPrioridad, pieEstado, piePrioridad, lineData, rankingAsignadas, rankingCompletadas, vencidas, sinFecha, tiempoPromedio, total: tareas.length });
+    } catch (e) { toast(e.message, "error"); }
+    finally { setLoading(false); }
+  }, [filtroDesde, filtroHasta, filtroMiembro]);
+
+  useEffect(() => { cargar(); }, []);
+
+  return (
+    <div>
+      <SectionHeader title="Estadísticas de tareas" icon="chart-dots-3" role="pro" />
+
+      {/* Filtros */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap", alignItems: "flex-end" }}>
+        <div>
+          <label style={{ display: "block", fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>Vence desde</label>
+          <input type="date" value={filtroDesde} onChange={e => setFiltroDesde(e.target.value)} style={{ boxSizing: "border-box" }} />
+        </div>
+        <div>
+          <label style={{ display: "block", fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>Vence hasta</label>
+          <input type="date" value={filtroHasta} onChange={e => setFiltroHasta(e.target.value)} style={{ boxSizing: "border-box" }} />
+        </div>
+        <div style={{ minWidth: 200 }}>
+          <label style={{ display: "block", fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>Miembro</label>
+          <select value={filtroMiembro} onChange={e => setFiltroMiembro(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }}>
+            <option value="">Todos los miembros</option>
+            {miembros.map(m => <option key={m.id} value={m.id}>{m.apellidos}, {m.nombres}</option>)}
+          </select>
+        </div>
+        <Btn icon="refresh" variant="primary" small onClick={cargar} loading={loading}>Actualizar</Btn>
+        {filtroMiembro && <Btn icon="x" small onClick={() => setFiltroMiembro("")}>Limpiar</Btn>}
+      </div>
+
+      {loading ? <Spinner /> : !datos ? (
+        <div style={{ textAlign: "center", padding: "48px 0", color: "var(--text-muted)" }}>
+          <i className="ti ti-chart-dots-3" style={{ fontSize: 40, display: "block", marginBottom: 10 }} />
+          No hay tareas en el período seleccionado
+        </div>
+      ) : (
+        <div>
+          {/* ── Tarjetas resumen ── */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 24 }}>
+            {[
+              { label: "Total tareas", val: datos.total, icon: "checklist", role: "pro" },
+              { label: "Completadas", val: datos.porEstado.completada, icon: "check", role: "success" },
+              { label: "Pendientes", val: datos.porEstado.pendiente + datos.porEstado.en_progreso, icon: "clock", role: "warning" },
+              { label: "Canceladas", val: datos.porEstado.cancelada, icon: "x", role: "danger" },
+              { label: "Vencidas", val: datos.vencidas, icon: "alert-triangle", role: "danger" },
+              { label: "Sin fecha", val: datos.sinFecha, icon: "calendar-off", role: "accent" },
+              ...(datos.tiempoPromedio !== null ? [{ label: "Días prom. completar", val: `${datos.tiempoPromedio}d`, icon: "hourglass", role: "accent" }] : []),
+              { label: "% Completadas", val: datos.total ? `${Math.round(datos.porEstado.completada / datos.total * 100)}%` : "0%", icon: "chart-pie", role: "success" },
+            ].map(s => (
+              <div key={s.label} style={{ background: "var(--surface-1)", borderRadius: 10, padding: "12px 14px", borderTop: `2px solid var(--border-${s.role})` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                  <i className={`ti ti-${s.icon}`} style={{ fontSize: 14, color: `var(--text-${s.role})` }} />
+                  <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{s.label}</span>
+                </div>
+                <div style={{ fontSize: 24, fontWeight: 500, color: `var(--text-${s.role})` }}>{s.val}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* ── Gráfico tendencia mensual ── */}
+          {datos.lineData.length > 0 && (
+            <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 20, marginBottom: 20 }}>
+              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 16 }}>Tendencia mensual — tareas creadas vs completadas</div>
+              <ResponsiveContainer width="100%" height={240}>
+                <LineChart data={datos.lineData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Legend />
+                  <Line type="monotone" dataKey="creadas" stroke="#8B5CF6" name="Creadas" strokeWidth={2} dot={{ r: 4 }} />
+                  <Line type="monotone" dataKey="completadas" stroke="#10B981" name="Completadas" strokeWidth={2} dot={{ r: 4 }} />
+                  <Line type="monotone" dataKey="pendientes" stroke="#F59E0B" name="Pendientes/En progreso" strokeWidth={2} dot={false} strokeDasharray="5 5" />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* ── Pie charts estado y prioridad ── */}
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 20, marginBottom: 20 }}>
+            <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 20 }}>
+              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 16 }}>Distribución por estado</div>
+              <ResponsiveContainer width="100%" height={220}>
+                <PieChart>
+                  <Pie data={datos.pieEstado.filter(d => d.value > 0)} cx="50%" cy="50%" outerRadius={80} dataKey="value" nameKey="label"
+                    label={({ label, percent }) => percent > 0.05 ? `${label} ${Math.round(percent * 100)}%` : ""} labelLine={false}>
+                    {datos.pieEstado.map((e, i) => <Cell key={i} fill={COLORES_ESTADO[e.name] || PIE_COLORS[i]} />)}
+                  </Pie>
+                  <Tooltip formatter={(v, n) => [v, n]} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 20 }}>
+              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 16 }}>Distribución por prioridad</div>
+              <ResponsiveContainer width="100%" height={220}>
+                <PieChart>
+                  <Pie data={datos.piePrioridad.filter(d => d.value > 0)} cx="50%" cy="50%" outerRadius={80} dataKey="value" nameKey="label"
+                    label={({ label, percent }) => percent > 0.05 ? `${label} ${Math.round(percent * 100)}%` : ""} labelLine={false}>
+                    {datos.piePrioridad.map((e, i) => <Cell key={i} fill={COLORES_PRIO[e.name] || PIE_COLORS[i]} />)}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* ── Barra % completadas por mes ── */}
+          {datos.lineData.length > 1 && (
+            <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 20, marginBottom: 20 }}>
+              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 16 }}>% de tareas completadas por mes</div>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={datos.lineData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} unit="%" />
+                  <Tooltip formatter={v => `${v}%`} />
+                  <Bar dataKey="pctCompletadas" name="% Completadas" fill="#10B981" radius={[4,4,0,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* ── Rankings ── */}
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 20, marginBottom: 20 }}>
+            {/* Ranking: más tareas asignadas */}
+            <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 20 }}>
+              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 16 }}>
+                <i className="ti ti-sort-descending-numbers" style={{ marginRight: 6, color: "var(--text-pro)" }} />
+                Top 10 — más tareas asignadas
+              </div>
+              {datos.rankingAsignadas.length === 0 ? (
+                <div style={{ textAlign: "center", color: "var(--text-muted)", fontSize: 13, padding: 20 }}>Sin datos</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {datos.rankingAsignadas.map((m, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 24, height: 24, borderRadius: "50%", background: i < 3 ? "var(--bg-pro)" : "var(--surface-1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 500, color: i < 3 ? "var(--text-pro)" : "var(--text-muted)", flexShrink: 0 }}>{i + 1}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.nombre}</div>
+                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                          {m.completadas} completadas · {m.pendientes} pendientes
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0 }}>
+                        <div style={{ fontSize: 15, fontWeight: 500, color: "var(--text-pro)" }}>{m.total}</div>
+                        <div style={{ fontSize: 10, color: "var(--text-success)" }}>{m.pct}% ✓</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Ranking: más tareas completadas */}
+            <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 20 }}>
+              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 16 }}>
+                <i className="ti ti-trophy" style={{ marginRight: 6, color: "var(--text-success)" }} />
+                Top 10 — más tareas completadas
+              </div>
+              {datos.rankingCompletadas.length === 0 ? (
+                <div style={{ textAlign: "center", color: "var(--text-muted)", fontSize: 13, padding: 20 }}>Sin tareas completadas en el período</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {datos.rankingCompletadas.map((m, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 24, height: 24, borderRadius: "50%", background: i < 3 ? "var(--bg-success)" : "var(--surface-1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 500, color: i < 3 ? "var(--text-success)" : "var(--text-muted)", flexShrink: 0 }}>
+                        {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : i + 1}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.nombre}</div>
+                        <div style={{ display: "flex", gap: 4, marginTop: 2 }}>
+                          {/* Barra de progreso visual */}
+                          <div style={{ flex: 1, height: 4, borderRadius: 2, background: "var(--surface-1)", overflow: "hidden" }}>
+                            <div style={{ height: "100%", width: `${m.total ? (m.completadas / m.total * 100) : 0}%`, background: "var(--border-success)", borderRadius: 2 }} />
+                          </div>
+                          <span style={{ fontSize: 10, color: "var(--text-muted)" }}>{m.total ? Math.round(m.completadas / m.total * 100) : 0}%</span>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 18, fontWeight: 500, color: "var(--text-success)", flexShrink: 0 }}>{m.completadas}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── Bar chart por miembro (top 10 asignadas) ── */}
+          {datos.rankingAsignadas.length > 0 && (
+            <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 20 }}>
+              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 16 }}>Tareas por miembro (top 10)</div>
+              <ResponsiveContainer width="100%" height={isMobile ? 300 : 240}>
+                <BarChart data={datos.rankingAsignadas} layout="vertical" margin={{ left: isMobile ? 80 : 120 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis type="number" tick={{ fontSize: 11 }} />
+                  <YAxis type="category" dataKey="nombre" tick={{ fontSize: 10 }} width={isMobile ? 80 : 120} />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="completadas" name="Completadas" stackId="a" fill="#10B981" />
+                  <Bar dataKey="pendientes" name="Pendientes" stackId="a" fill="#F59E0B" />
+                  <Bar dataKey="canceladas" name="Canceladas" stackId="a" fill="#EF4444" radius={[0,4,4,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ModuloTareas() {
   const { usuario, toast } = useApp();
   const isMobile = useIsMobile();
@@ -2771,7 +3080,8 @@ function ModuloVisitas() {
       let y = 15;
 
       // ── Cargar logo desde /logo-navy.png ─────────────────
-      const cargarLogoBase64 = () => new Promise((resolve) => {
+      // ── Función para cargar imagen a base64 ──────────────
+      const cargarImagen = (src) => new Promise((resolve) => {
         const img = new Image();
         img.crossOrigin = "anonymous";
         img.onload = () => {
@@ -2781,28 +3091,33 @@ function ModuloVisitas() {
           resolve(canvas.toDataURL("image/png"));
         };
         img.onerror = () => resolve(null);
-        img.src = "/logo-navy.png";
+        img.src = src;
       });
 
-      const logoB64 = await cargarLogoBase64();
+      const [escudoB64, firmaB64] = await Promise.all([
+        cargarImagen("/escudo.jpg"),
+        cargarImagen("/firma-pastor.jpg"),
+      ]);
 
-      // ── Encabezado con logo ───────────────────────────────
+      // ── Encabezado con escudo ──────────────────────────────
       const dibujarEncabezado = (titulo, subtitulo) => {
-        // Logo a la izquierda
-        if (logoB64) {
-          try { doc.addImage(logoB64, "PNG", mx, y, 22, 22); } catch {}
+        // Escudo arriba a la izquierda
+        if (escudoB64) {
+          try { doc.addImage(escudoB64, "JPEG", mx, y, 28, 28); } catch {}
         }
         // Nombre iglesia centrado
         doc.setFontSize(14); doc.setFont("helvetica", "bold");
+        doc.setTextColor(30, 45, 90);
         doc.text(datos.iglesia || "Unión Pentecostal", 105, y + 8, { align: "center" });
         // Línea separadora
-        y += 26;
+        y += 32;
         doc.setDrawColor(30, 45, 90);
         doc.setLineWidth(0.5);
         doc.line(mx, y, mx + aw, y);
         y += 4;
         // Título del documento
         doc.setFontSize(12); doc.setFont("helvetica", "bold");
+        doc.setTextColor(30, 30, 30);
         doc.text(subtitulo, 105, y, { align: "center" });
         y += 8;
         doc.setDrawColor(200, 200, 200);
@@ -2826,9 +3141,27 @@ function ModuloVisitas() {
 
       const espacio = (n = 6) => { y += n; };
 
-      // ── Pie de página ─────────────────────────────────────
+      // ── Pie de página con firma ────────────────────────────
       const dibujarPie = (numeroCarta) => {
-        const yPie = 280;
+        // Firma del pastor centrada
+        const yFirma = 238;
+        if (firmaB64) {
+          try { doc.addImage(firmaB64, "JPEG", 80, yFirma, 50, 30); } catch {}
+        }
+        // Línea de firma
+        const yLinea = yFirma + 32;
+        doc.setDrawColor(30, 30, 30);
+        doc.setLineWidth(0.3);
+        doc.line(75, yLinea, 135, yLinea);
+        // Nombre y cargo del pastor
+        doc.setFontSize(9); doc.setFont("helvetica", "bold");
+        doc.setTextColor(30, 30, 30);
+        doc.text(datos.pastor_firma || "Pastor/a", 105, yLinea + 5, { align: "center" });
+        doc.setFontSize(8); doc.setFont("helvetica", "normal");
+        doc.text(datos.cargo_pastor || "Pastor", 105, yLinea + 9, { align: "center" });
+        doc.text(datos.iglesia || "Unión Pentecostal", 105, yLinea + 13, { align: "center" });
+        // Línea separadora pie de página
+        const yPie = 278;
         doc.setDrawColor(30, 45, 90);
         doc.setLineWidth(0.3);
         doc.line(mx, yPie, mx + aw, yPie);
@@ -3688,7 +4021,6 @@ function GeneradorDocumentos({ miembro }) {
   const generarPDF = async () => {
     setGenerando(true);
     try {
-      // Cargar jsPDF dinámicamente
       if (!window.jspdf) {
         await new Promise((resolve, reject) => {
           const script = document.createElement("script");
@@ -3700,47 +4032,87 @@ function GeneradorDocumentos({ miembro }) {
       }
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-      const lineas = tipo === "sancion" ? buildTextoSancion() : buildTextoLicencia();
       const margenX = 25;
       const anchoTexto = 160;
-      let y = 30;
+      let y = 15;
 
-      for (const linea of lineas) {
+      // ── Cargar escudo y firma ─────────────────────────────
+      const cargarImg = (src) => new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+          const c = document.createElement("canvas");
+          c.width = img.width; c.height = img.height;
+          c.getContext("2d").drawImage(img, 0, 0);
+          resolve(c.toDataURL("image/jpeg"));
+        };
+        img.onerror = () => resolve(null);
+        img.src = src;
+      });
+      const [escudoB64, firmaB64] = await Promise.all([cargarImg("/escudo.jpg"), cargarImg("/firma-pastor.jpg")]);
+
+      // ── Encabezado con escudo ─────────────────────────────
+      if (escudoB64) {
+        try { doc.addImage(escudoB64, "JPEG", margenX, y, 28, 28); } catch {}
+      }
+      doc.setFontSize(14); doc.setFont("helvetica", "bold");
+      doc.setTextColor(30, 45, 90);
+      doc.text(form.iglesia || "Unión Pentecostal", 105, y + 8, { align: "center" });
+      y += 32;
+      doc.setDrawColor(30, 45, 90); doc.setLineWidth(0.5);
+      doc.line(margenX, y, margenX + anchoTexto, y);
+      y += 6;
+
+      const lineas = tipo === "sancion" ? buildTextoSancion() : buildTextoLicencia();
+
+      // Filtrar lineas de firma — las ponemos con imagen al final
+      const lineasSinFirma = lineas.filter(l => l.estilo !== "firma" && l.estilo !== "firma_cargo");
+      const lineasFirma = lineas.filter(l => l.estilo === "firma" || l.estilo === "firma_cargo");
+
+      for (const linea of lineasSinFirma) {
         if (linea.estilo === "espacio") { y += 6; continue; }
-        if (y > 270) { doc.addPage(); y = 30; }
-
+        if (y > 225) { doc.addPage(); y = 30; }
+        doc.setTextColor(30, 30, 30);
         if (linea.estilo === "titulo") {
-          doc.setFontSize(14); doc.setFont("helvetica", "bold");
-          doc.text(linea.texto, 105, y, { align: "center" });
-          y += 8;
+          doc.setFontSize(13); doc.setFont("helvetica", "bold");
+          doc.text(linea.texto, 105, y, { align: "center" }); y += 8;
         } else if (linea.estilo === "subtitulo") {
-          doc.setFontSize(12); doc.setFont("helvetica", "bold");
-          doc.text(linea.texto, 105, y, { align: "center" });
-          y += 8;
+          doc.setFontSize(11); doc.setFont("helvetica", "bold");
+          doc.text(linea.texto, 105, y, { align: "center" }); y += 7;
         } else if (linea.estilo === "subtitulo_pequeño") {
           doc.setFontSize(10); doc.setFont("helvetica", "bold");
-          doc.text(linea.texto, margenX, y);
-          y += 6;
+          doc.text(linea.texto, margenX, y); y += 6;
         } else if (linea.estilo === "dato") {
           doc.setFontSize(11); doc.setFont("helvetica", "bold");
           const split = doc.splitTextToSize(linea.texto, anchoTexto);
-          doc.text(split, margenX, y);
-          y += split.length * 6;
-        } else if (linea.estilo === "firma") {
-          doc.setFontSize(10); doc.setFont("helvetica", "normal");
-          doc.text(linea.texto, 105, y, { align: "center" });
-          y += 5;
-        } else if (linea.estilo === "firma_cargo") {
-          doc.setFontSize(9); doc.setFont("helvetica", "italic");
-          doc.text(linea.texto, 105, y, { align: "center" });
-          y += 5;
+          doc.text(split, margenX, y); y += split.length * 6;
         } else {
           doc.setFontSize(10); doc.setFont("helvetica", "normal");
           const split = doc.splitTextToSize(linea.texto, anchoTexto);
-          doc.text(split, margenX, y);
-          y += split.length * 5.5;
+          doc.text(split, margenX, y); y += split.length * 5.5;
         }
       }
+
+      // ── Firma con imagen ──────────────────────────────────
+      const yFirma = Math.max(y + 10, 235);
+      if (firmaB64) {
+        try { doc.addImage(firmaB64, "JPEG", 80, yFirma - 28, 50, 30); } catch {}
+      }
+      doc.setDrawColor(30, 30, 30); doc.setLineWidth(0.3);
+      doc.line(75, yFirma, 135, yFirma);
+      doc.setFontSize(9); doc.setFont("helvetica", "bold"); doc.setTextColor(30, 30, 30);
+      if (lineasFirma[0]) { doc.text(lineasFirma[0].texto, 105, yFirma + 5, { align: "center" }); }
+      doc.setFontSize(8); doc.setFont("helvetica", "italic");
+      if (lineasFirma[1]) { doc.text(lineasFirma[1].texto, 105, yFirma + 9, { align: "center" }); }
+      if (lineasFirma[2]) { doc.text(lineasFirma[2].texto, 105, yFirma + 13, { align: "center" }); }
+
+      // ── Pie de página ─────────────────────────────────────
+      const yPie = 278;
+      doc.setDrawColor(30, 45, 90); doc.setLineWidth(0.3);
+      doc.line(margenX, yPie, margenX + anchoTexto, yPie);
+      doc.setFontSize(8); doc.setFont("helvetica", "normal"); doc.setTextColor(120, 120, 120);
+      doc.text(form.iglesia || "Unión Pentecostal", margenX, yPie + 4);
+      doc.text(`Generado: ${new Date().toLocaleDateString("es-ES")}`, 105, yPie + 4, { align: "center" });
 
       const tipoLabel = tipo === "sancion" ? "Sancion" : "Licencia";
       const apellido = miembro?.apellidos || "miembro";
@@ -4108,7 +4480,7 @@ export default function App() {
     </AppCtx.Provider>
   );
 
-  const PAGES = { dashboard: Dashboard, miembros: ModuloMiembros, asistencia: ModuloAsistencia, historial: ModuloHistorial, tareas: ModuloTareas, visitas: ModuloVisitas, legajos: ModuloLegajos, reportes: ModuloReportes, config: ModuloConfig };
+  const PAGES = { dashboard: Dashboard, miembros: ModuloMiembros, asistencia: ModuloAsistencia, historial: ModuloHistorial, tareas: ModuloTareas, estadisticas_tareas: ModuloEstadisticasTareas, visitas: ModuloVisitas, legajos: ModuloLegajos, reportes: ModuloReportes, config: ModuloConfig };
   const PageComp = PAGES[page] || Dashboard;
   const currentNav = NAV_ITEMS.find(n => n.id === page);
 
