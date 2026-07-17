@@ -141,8 +141,7 @@ const isBirthdayToday = (dob) => {
   const b = new Date(dob + "T12:00:00"), n = new Date();
   return b.getMonth() === n.getMonth() && b.getDate() === n.getDate();
 };
-const ESTADO_COLORS = { presente: "#10B981", ausente: "#EF4444", justificado: "#F59E0B", tarde: "#3B82F6" };
-const PIE_COLORS = ["#178CC7","#17A57A","#D85A30","#8B5CF6","#F59E0B","#EF4444"];
+
 const PERMS = { superadmin: ["todo"], admin: ["miembros","asistencia","reportes","config"], secretario: ["miembros","asistencia"], lector: ["reportes"] };
 const canDo = (usuario, perm) => {
   if (!usuario) return false;
@@ -165,6 +164,7 @@ function useIsMobile(breakpoint = 768) {
 // COMPONENTES BASE
 // ─────────────────────────────────────────────────────────────
 function Toast({ msg, type, onClose }) {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { const t = setTimeout(onClose, 3800); return () => clearTimeout(t); }, []);
   const roles = { error: "danger", warn: "warning", ok: "success", info: "accent" };
   const r = roles[type] || "success";
@@ -493,7 +493,7 @@ function ModuloMiembros() {
       setMiembros(ms); setTemplos(ts); setCargos(cs); setGrupos(gs);
     } catch (e) { toast(e.message, "error"); }
     finally { setLoading(false); }
-  }, []);
+  }, [toast]);
 
   useEffect(() => { cargar(); }, [cargar]);
 
@@ -740,7 +740,7 @@ function ModuloVisitas() {
       setEntrantes(e); setSalientes(s); setMiembros(ms);
     } catch (err) { toast(err.message, "error"); }
     finally { setLoading(false); }
-  }, []);
+  }, [toast]);
 
   useEffect(() => { cargar(); }, [cargar]);
 
