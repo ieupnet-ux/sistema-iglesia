@@ -478,6 +478,7 @@ function ModuloMiembros() {
   const [filtroTemplo, setFiltroTemplo] = useState("");
   const [filtroCargo, setFiltroCargo] = useState("");
   const [filtroGrupo, setFiltroGrupo] = useState("");
+  const [modal, setModal] = useState(null);
   const [exportando, setExportando] = useState(false);
 
   const cargar = useCallback(async () => {
