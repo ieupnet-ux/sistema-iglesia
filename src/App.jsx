@@ -13,11 +13,7 @@ import "./theme.css";
 //    tabla usuarios_sistema con rol superadmin
 // ============================================================
 
-import { useState, useEffect, useCallback, createContext, useContext, useRef } from "react";
-import {
-  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-} from "recharts";
+import { useState, useEffect, useCallback, createContext, useContext } from "react";
 
 // ── SUPABASE CONFIG ──────────────────────────────────────────
 const SUPABASE_URL = "https://yaywdqnatifscsyeobsg.supabase.co";
