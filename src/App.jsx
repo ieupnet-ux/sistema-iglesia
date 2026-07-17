@@ -467,7 +467,7 @@ function Dashboard() {
 // MÓDULO MIEMBROS
 // ─────────────────────────────────────────────────────────────
 function ModuloMiembros() {
-  const { usuario, toast } = useApp();
+  const { toast } = useApp();
   const [miembros, setMiembros] = useState([]);
   const [templos, setTemplos] = useState([]);
   const [cargos, setCargos] = useState([]);
