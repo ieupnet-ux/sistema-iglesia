@@ -987,8 +987,9 @@ function ModalVisita({ modal, miembros, usuario, onClose, onSaved }) {
         img.src = src;
       });
 
-      const [escudoB64, firmaB64] = await Promise.all([
+      const [escudoB64, logoB64, firmaB64] = await Promise.all([
         cargarImagen("/escudo.jpg"),
+        cargarImagen("/logo-white.png"),
         cargarImagen("/firma-pastor.jpg"),
       ]);
 
@@ -1003,9 +1004,9 @@ function ModalVisita({ modal, miembros, usuario, onClose, onSaved }) {
       }
 
       // Logo a la derecha
-      if (firmaB64) {
+      if (logoB64) {
         try {
-          doc.addImage(firmaB64, "JPEG", pageWidth - marginX - 20, y, 20, 20);
+          doc.addImage(logoB64, "PNG", pageWidth - marginX - 20, y, 20, 20);
         } catch (e) {
           console.warn("No se pudo cargar logo derecho:", e);
         }
@@ -1155,34 +1156,29 @@ function ModalVisita({ modal, miembros, usuario, onClose, onSaved }) {
       doc.text(cierreSplit, marginX, y);
       y += cierreSplit.length * 5 + 8;
 
-      // ── FIRMA (O IMAGEN O LÍNEA, NO AMBAS) ──────────────────
-      const yFirmaLinea = Math.min(y + 12, 240);
+      // ── FIRMA ──────────────────────────────────────────────
+      const yFirmaLinea = Math.min(y + 4, 240);
 
-      // Si hay imagen de firma, mostrarla (sin línea en blanco)
+      // Mostrar imagen de firma (solo imagen, sin línea en blanco)
       if (firmaB64 && y < 200) {
         try {
-          doc.addImage(firmaB64, "JPEG", marginX + 25, yFirmaLinea - 15, 60, 28);
+          doc.addImage(firmaB64, "JPEG", marginX + 25, yFirmaLinea - 5, 60, 28);
         } catch (e) {
           console.warn("No se pudo cargar firma:", e);
         }
-      } else {
-        // Si NO hay imagen, mostrar SOLO línea en blanco para firmar manualmente
-        doc.setLineWidth(0.5);
-        doc.setDrawColor(...colorPrimario);
-        doc.line(marginX + 15, yFirmaLinea, marginX + 95, yFirmaLinea);
       }
 
       // Datos del firmante (siempre se muestran)
       doc.setFont("helvetica", "bold");
       doc.setFontSize(10);
       doc.setTextColor(...colorTexto);
-      doc.text(form.pastor_firma || "Pastor/a", marginX + 55, yFirmaLinea + 8, { align: "center" });
+      doc.text(form.pastor_firma || "Pastor/a", marginX + 55, yFirmaLinea + 28, { align: "center" });
 
       doc.setFont("helvetica", "italic");
       doc.setFontSize(9);
       doc.setTextColor(...colorSecundario);
-      doc.text(form.cargo_pastor || "Pastor", marginX + 55, yFirmaLinea + 13, { align: "center" });
-      doc.text(form.iglesia || "Unión Pentecostal", marginX + 55, yFirmaLinea + 18, { align: "center" });
+      doc.text(form.cargo_pastor || "Pastor", marginX + 55, yFirmaLinea + 33, { align: "center" });
+      doc.text(form.iglesia || "Unión Pentecostal", marginX + 55, yFirmaLinea + 38, { align: "center" });
 
       // ── PIE DE PÁGINA ──────────────────────────────────────
       const yFooter = 270;
