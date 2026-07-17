@@ -1,3 +1,5 @@
+import "./theme.css";
+
 // ============================================================
 // SISTEMA DE GESTIÓN IGLESIA
 // Stack: React + Supabase (PostgreSQL + Auth + Storage)
@@ -10,7 +12,7 @@
 // 5. Crea el primer usuario en Supabase Auth y luego en la
 //    tabla usuarios_sistema con rol superadmin
 // ============================================================
-import "./theme.css";
+
 import { useState, useEffect, useCallback, createContext, useContext, useRef } from "react";
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -719,7 +721,7 @@ function ModuloMiembros() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// MÓDULO VISITAS - CON PDF MEJORADO
+// MÓDULO VISITAS - CON PDF MEJORADO (SIN DUPLICACIÓN DE FIRMA)
 // ─────────────────────────────────────────────────────────────
 function ModuloVisitas() {
   const { usuario, toast } = useApp();
@@ -869,7 +871,7 @@ function ModuloVisitas() {
   );
 }
 
-// ── Modal de visitas con PDF mejorado ─────────────────────────
+// ── Modal de visitas con PDF mejorado (sin duplicación) ──────
 function ModalVisita({ modal, miembros, usuario, onClose, onSaved }) {
   const { toast } = useApp();
   const isMobile = useIsMobile();
@@ -948,7 +950,7 @@ function ModalVisita({ modal, miembros, usuario, onClose, onSaved }) {
     finally { setSaving(false); }
   };
 
-  // ── FUNCIÓN MEJORADA DE GENERACIÓN DE PDF ─────────────────
+  // ── FUNCIÓN MEJORADA DE GENERACIÓN DE PDF (SIN DUPLICACIÓN) ──
   const generarPDF = async (tipo, datos) => {
     try {
       if (!window.jspdf) {
@@ -998,11 +1000,21 @@ function ModalVisita({ modal, miembros, usuario, onClose, onSaved }) {
       ]);
 
       // ── ENCABEZADO ────────────────────────────────────────
+      // Escudo a la izquierda
       if (escudoB64) {
         try {
           doc.addImage(escudoB64, "JPEG", marginX, y, 22, 22);
         } catch (e) {
           console.warn("No se pudo cargar escudo:", e);
+        }
+      }
+
+      // Logo a la derecha
+      if (firmaB64) {
+        try {
+          doc.addImage(firmaB64, "JPEG", pageWidth - marginX - 20, y, 20, 20);
+        } catch (e) {
+          console.warn("No se pudo cargar logo derecho:", e);
         }
       }
 
@@ -1150,34 +1162,34 @@ function ModalVisita({ modal, miembros, usuario, onClose, onSaved }) {
       doc.text(cierreSplit, marginX, y);
       y += cierreSplit.length * 5 + 8;
 
-      // ── FIRMA ──────────────────────────────────────────────
+      // ── FIRMA (O IMAGEN O LÍNEA, NO AMBAS) ──────────────────
       const yFirmaLinea = Math.min(y + 12, 240);
 
-      // Si hay imagen de firma, mostrarla
+      // Si hay imagen de firma, mostrarla (sin línea en blanco)
       if (firmaB64 && y < 200) {
         try {
-          doc.addImage(firmaB64, "JPEG", marginX + 30, yFirmaLinea - 20, 50, 25);
+          doc.addImage(firmaB64, "JPEG", marginX + 25, yFirmaLinea - 15, 60, 28);
         } catch (e) {
           console.warn("No se pudo cargar firma:", e);
         }
+      } else {
+        // Si NO hay imagen, mostrar SOLO línea en blanco para firmar manualmente
+        doc.setLineWidth(0.5);
+        doc.setDrawColor(...colorPrimario);
+        doc.line(marginX + 15, yFirmaLinea, marginX + 95, yFirmaLinea);
       }
 
-      // Línea de firma
-      doc.setLineWidth(0.5);
-      doc.setDrawColor(...colorPrimario);
-      doc.line(marginX + 15, yFirmaLinea, marginX + 95, yFirmaLinea);
-
-      // Datos del firmante
+      // Datos del firmante (siempre se muestran)
       doc.setFont("helvetica", "bold");
       doc.setFontSize(10);
       doc.setTextColor(...colorTexto);
-      doc.text(form.pastor_firma || "Pastor/a", marginX + 55, yFirmaLinea + 5, { align: "center" });
+      doc.text(form.pastor_firma || "Pastor/a", marginX + 55, yFirmaLinea + 8, { align: "center" });
 
       doc.setFont("helvetica", "italic");
       doc.setFontSize(9);
       doc.setTextColor(...colorSecundario);
-      doc.text(form.cargo_pastor || "Pastor", marginX + 55, yFirmaLinea + 10, { align: "center" });
-      doc.text(form.iglesia || "Unión Pentecostal", marginX + 55, yFirmaLinea + 15, { align: "center" });
+      doc.text(form.cargo_pastor || "Pastor", marginX + 55, yFirmaLinea + 13, { align: "center" });
+      doc.text(form.iglesia || "Unión Pentecostal", marginX + 55, yFirmaLinea + 18, { align: "center" });
 
       // ── PIE DE PÁGINA ──────────────────────────────────────
       const yFooter = 270;
