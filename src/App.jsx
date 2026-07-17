@@ -1168,18 +1168,6 @@ function ModalVisita({ modal, miembros, usuario, onClose, onSaved }) {
         }
       }
 
-      // Datos del firmante (siempre se muestran)
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
-      doc.setTextColor(...colorTexto);
-      doc.text(form.pastor_firma || "Pastor/a", marginX + 55, yFirmaLinea + 28, { align: "center" });
-
-      doc.setFont("helvetica", "italic");
-      doc.setFontSize(9);
-      doc.setTextColor(...colorSecundario);
-      doc.text(form.cargo_pastor || "Pastor", marginX + 55, yFirmaLinea + 33, { align: "center" });
-      doc.text(form.iglesia || "Unión Pentecostal", marginX + 55, yFirmaLinea + 38, { align: "center" });
-
       // ── PIE DE PÁGINA ──────────────────────────────────────
       const yFooter = 270;
       doc.setLineWidth(0.5);
