@@ -3148,13 +3148,13 @@ function ModuloVisitas() {
 
       // ── Pie de página con firma ────────────────────────────
       const dibujarPie = (numeroCarta) => {
-        // Firma del pastor centrada (más arriba aún)
-        const yFirma = 175;
+        // Firma del pastor centrada (más arriba)
+        const yFirma = 155;
         if (firmaB64) {
-          try { doc.addImage(firmaB64, "JPEG", 80, yFirma, 50, 30); } catch {}
+          try { doc.addImage(firmaB64, "JPEG", 80, yFirma, 50, 40); } catch {}
         }
         // Nombre del pastor (sin línea en blanco, sin duplicados)
-        const yLinea = yFirma + 32;
+        const yLinea = yFirma + 42;
         doc.setFontSize(9); doc.setFont("helvetica", "bold");
         doc.setTextColor(30, 30, 30);
         doc.text(datos.pastor_firma || "Pastor/a", 105, yLinea + 5, { align: "center" });
@@ -4085,12 +4085,12 @@ function GeneradorDocumentos({ miembro }) {
       }
 
       // ── Firma con imagen ──────────────────────────────────
-      const yFirma = Math.max(y + 5, 170);
+      const yFirma = Math.max(y + 5, 150);
       if (firmaB64) {
-        try { doc.addImage(firmaB64, "JPEG", 80, yFirma - 28, 50, 30); } catch {}
+        try { doc.addImage(firmaB64, "JPEG", 80, yFirma - 28, 50, 40); } catch {}
       }
       // Solo nombre del pastor (sin línea en blanco, sin duplicados)
-      const yNombreFirma = yFirma + 32;
+      const yNombreFirma = yFirma + 22;
       doc.setFontSize(9); doc.setFont("helvetica", "bold"); doc.setTextColor(30, 30, 30);
       if (lineasFirma[0]) { doc.text(lineasFirma[0].texto, 105, yNombreFirma, { align: "center" }); }
 
