@@ -1,5 +1,3 @@
-import "./theme.css";
-
 // ============================================================
 // SISTEMA DE GESTIÓN IGLESIA
 // Stack: React + Supabase (PostgreSQL + Auth + Storage)
@@ -12,8 +10,12 @@ import "./theme.css";
 // 5. Crea el primer usuario en Supabase Auth y luego en la
 //    tabla usuarios_sistema con rol superadmin
 // ============================================================
-
-import { useState, useEffect, useCallback, createContext, useContext } from "react";
+import "./theme.css";
+import { useState, useEffect, useCallback, createContext, useContext, useRef } from "react";
+import {
+  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+} from "recharts";
 
 // ── SUPABASE CONFIG ──────────────────────────────────────────
 const SUPABASE_URL = "https://yaywdqnatifscsyeobsg.supabase.co";
@@ -141,7 +143,8 @@ const isBirthdayToday = (dob) => {
   const b = new Date(dob + "T12:00:00"), n = new Date();
   return b.getMonth() === n.getMonth() && b.getDate() === n.getDate();
 };
-
+const ESTADO_COLORS = { presente: "#10B981", ausente: "#EF4444", justificado: "#F59E0B", tarde: "#3B82F6" };
+const PIE_COLORS = ["#178CC7","#17A57A","#D85A30","#8B5CF6","#F59E0B","#EF4444"];
 const PERMS = { superadmin: ["todo"], admin: ["miembros","asistencia","reportes","config"], secretario: ["miembros","asistencia"], lector: ["reportes"] };
 const canDo = (usuario, perm) => {
   if (!usuario) return false;
@@ -164,7 +167,6 @@ function useIsMobile(breakpoint = 768) {
 // COMPONENTES BASE
 // ─────────────────────────────────────────────────────────────
 function Toast({ msg, type, onClose }) {
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { const t = setTimeout(onClose, 3800); return () => clearTimeout(t); }, []);
   const roles = { error: "danger", warn: "warning", ok: "success", info: "accent" };
   const r = roles[type] || "success";
@@ -467,7 +469,7 @@ function Dashboard() {
 // MÓDULO MIEMBROS
 // ─────────────────────────────────────────────────────────────
 function ModuloMiembros() {
-  const { toast } = useApp();
+  const { usuario, toast } = useApp();
   const [miembros, setMiembros] = useState([]);
   const [templos, setTemplos] = useState([]);
   const [cargos, setCargos] = useState([]);
@@ -478,6 +480,7 @@ function ModuloMiembros() {
   const [filtroTemplo, setFiltroTemplo] = useState("");
   const [filtroCargo, setFiltroCargo] = useState("");
   const [filtroGrupo, setFiltroGrupo] = useState("");
+  const [modal, setModal] = useState(null);
   const [exportando, setExportando] = useState(false);
 
   const cargar = useCallback(async () => {
@@ -492,7 +495,7 @@ function ModuloMiembros() {
       setMiembros(ms); setTemplos(ts); setCargos(cs); setGrupos(gs);
     } catch (e) { toast(e.message, "error"); }
     finally { setLoading(false); }
-  }, [toast]);
+  }, []);
 
   useEffect(() => { cargar(); }, [cargar]);
 
@@ -574,6 +577,7 @@ function ModuloMiembros() {
     finally { setExportando(false); }
   };
 
+  const canEdit = canDo(usuario, "miembros");
   const isMobile = useIsMobile();
 
   return (
@@ -587,6 +591,7 @@ function ModuloMiembros() {
             <Btn icon="file-spreadsheet" small onClick={exportarGoogleSheets} loading={exportando} variant="success">
               {isMobile ? "Sheets" : "Exportar a Sheets"}
             </Btn>
+            {canEdit && <Btn icon="user-plus" variant="primary" small onClick={() => setModal({ mode: "new", data: null })}>{isMobile ? "Nuevo" : "Nuevo miembro"}</Btn>}
           </div>
         }
       />
@@ -714,7 +719,7 @@ function ModuloMiembros() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// MÓDULO VISITAS - CON PDF MEJORADO (SIN DUPLICACIÓN DE FIRMA)
+// MÓDULO VISITAS - CON PDF MEJORADO
 // ─────────────────────────────────────────────────────────────
 function ModuloVisitas() {
   const { usuario, toast } = useApp();
@@ -737,7 +742,7 @@ function ModuloVisitas() {
       setEntrantes(e); setSalientes(s); setMiembros(ms);
     } catch (err) { toast(err.message, "error"); }
     finally { setLoading(false); }
-  }, [toast]);
+  }, []);
 
   useEffect(() => { cargar(); }, [cargar]);
 
@@ -864,7 +869,7 @@ function ModuloVisitas() {
   );
 }
 
-// ── Modal de visitas con PDF mejorado (sin duplicación) ──────
+// ── Modal de visitas con PDF mejorado ─────────────────────────
 function ModalVisita({ modal, miembros, usuario, onClose, onSaved }) {
   const { toast } = useApp();
   const isMobile = useIsMobile();
@@ -943,7 +948,7 @@ function ModalVisita({ modal, miembros, usuario, onClose, onSaved }) {
     finally { setSaving(false); }
   };
 
-  // ── FUNCIÓN MEJORADA DE GENERACIÓN DE PDF (SIN DUPLICACIÓN) ──
+  // ── FUNCIÓN MEJORADA DE GENERACIÓN DE PDF ─────────────────
   const generarPDF = async (tipo, datos) => {
     try {
       if (!window.jspdf) {
@@ -987,28 +992,17 @@ function ModalVisita({ modal, miembros, usuario, onClose, onSaved }) {
         img.src = src;
       });
 
-      const [escudoB64, logoB64, firmaB64] = await Promise.all([
+      const [escudoB64, firmaB64] = await Promise.all([
         cargarImagen("/escudo.jpg"),
-        cargarImagen("/logo-white.png"),
         cargarImagen("/firma-pastor.jpg"),
       ]);
 
       // ── ENCABEZADO ────────────────────────────────────────
-      // Escudo a la izquierda
       if (escudoB64) {
         try {
           doc.addImage(escudoB64, "JPEG", marginX, y, 22, 22);
         } catch (e) {
           console.warn("No se pudo cargar escudo:", e);
-        }
-      }
-
-      // Logo a la derecha
-      if (logoB64) {
-        try {
-          doc.addImage(logoB64, "PNG", pageWidth - marginX - 20, y, 20, 20);
-        } catch (e) {
-          console.warn("No se pudo cargar logo derecho:", e);
         }
       }
 
@@ -1157,16 +1151,33 @@ function ModalVisita({ modal, miembros, usuario, onClose, onSaved }) {
       y += cierreSplit.length * 5 + 8;
 
       // ── FIRMA ──────────────────────────────────────────────
-      const yFirmaLinea = Math.min(y + 4, 240);
+      const yFirmaLinea = Math.min(y + 12, 240);
 
-      // Mostrar imagen de firma (solo imagen, sin línea en blanco)
+      // Si hay imagen de firma, mostrarla
       if (firmaB64 && y < 200) {
         try {
-          doc.addImage(firmaB64, "JPEG", marginX + 25, yFirmaLinea - 5, 60, 28);
+          doc.addImage(firmaB64, "JPEG", marginX + 30, yFirmaLinea - 20, 50, 25);
         } catch (e) {
           console.warn("No se pudo cargar firma:", e);
         }
       }
+
+      // Línea de firma
+      doc.setLineWidth(0.5);
+      doc.setDrawColor(...colorPrimario);
+      doc.line(marginX + 15, yFirmaLinea, marginX + 95, yFirmaLinea);
+
+      // Datos del firmante
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.setTextColor(...colorTexto);
+      doc.text(form.pastor_firma || "Pastor/a", marginX + 55, yFirmaLinea + 5, { align: "center" });
+
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(9);
+      doc.setTextColor(...colorSecundario);
+      doc.text(form.cargo_pastor || "Pastor", marginX + 55, yFirmaLinea + 10, { align: "center" });
+      doc.text(form.iglesia || "Unión Pentecostal", marginX + 55, yFirmaLinea + 15, { align: "center" });
 
       // ── PIE DE PÁGINA ──────────────────────────────────────
       const yFooter = 270;
