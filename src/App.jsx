@@ -4047,11 +4047,14 @@ function GeneradorDocumentos({ miembro }) {
         img.onerror = () => resolve(null);
         img.src = src;
       });
-      const [escudoB64, firmaB64] = await Promise.all([cargarImg("/escudo.jpg"), cargarImg("/firma-pastor.jpg")]);
+      const [escudoB64, logoB64, firmaB64] = await Promise.all([cargarImg("/escudo.jpg"), cargarImg("/logo-white.png"), cargarImg("/firma-pastor.jpg")]);
 
       // ── Encabezado con escudo ─────────────────────────────
       if (escudoB64) {
         try { doc.addImage(escudoB64, "JPEG", margenX, y, 28, 28); } catch {}
+      }
+      if (logoB64) {
+        try { doc.addImage(logoB64, "PNG", 172, y, 28, 28); } catch {}
       }
       doc.setFontSize(14); doc.setFont("helvetica", "bold");
       doc.setTextColor(30, 45, 90);
@@ -4092,17 +4095,14 @@ function GeneradorDocumentos({ miembro }) {
       }
 
       // ── Firma con imagen ──────────────────────────────────
-      const yFirma = Math.max(y + 10, 235);
+      const yFirma = Math.max(y + 5, 215);
       if (firmaB64) {
         try { doc.addImage(firmaB64, "JPEG", 80, yFirma - 28, 50, 30); } catch {}
       }
-      doc.setDrawColor(30, 30, 30); doc.setLineWidth(0.3);
-      doc.line(75, yFirma, 135, yFirma);
+      // Solo nombre del pastor (sin línea en blanco, sin duplicados)
+      const yNombreFirma = yFirma + 32;
       doc.setFontSize(9); doc.setFont("helvetica", "bold"); doc.setTextColor(30, 30, 30);
-      if (lineasFirma[0]) { doc.text(lineasFirma[0].texto, 105, yFirma + 5, { align: "center" }); }
-      doc.setFontSize(8); doc.setFont("helvetica", "italic");
-      if (lineasFirma[1]) { doc.text(lineasFirma[1].texto, 105, yFirma + 9, { align: "center" }); }
-      if (lineasFirma[2]) { doc.text(lineasFirma[2].texto, 105, yFirma + 13, { align: "center" }); }
+      if (lineasFirma[0]) { doc.text(lineasFirma[0].texto, 105, yNombreFirma, { align: "center" }); }
 
       // ── Pie de página ─────────────────────────────────────
       const yPie = 278;
