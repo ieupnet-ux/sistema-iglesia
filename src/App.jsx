@@ -10,7 +10,7 @@
 // 5. Crea el primer usuario en Supabase Auth y luego en la
 //    tabla usuarios_sistema con rol superadmin
 // ============================================================
-
+import "./theme.css";
 import { useState, useEffect, useCallback, createContext, useContext, useRef } from "react";
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
