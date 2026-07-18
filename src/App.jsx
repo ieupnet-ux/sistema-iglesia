@@ -3094,8 +3094,9 @@ function ModuloVisitas() {
         img.src = src;
       });
 
-      const [escudoB64, firmaB64] = await Promise.all([
+      const [escudoB64, logoB64, firmaB64] = await Promise.all([
         cargarImagen("/escudo.jpg"),
+        cargarImagen("/logo-white.png"),
         cargarImagen("/firma-pastor.jpg"),
       ]);
 
@@ -3104,6 +3105,10 @@ function ModuloVisitas() {
         // Escudo arriba a la izquierda
         if (escudoB64) {
           try { doc.addImage(escudoB64, "JPEG", mx, y, 28, 28); } catch {}
+        }
+        // Logo blanco arriba a la derecha
+        if (logoB64) {
+          try { doc.addImage(logoB64, "PNG", 172, y, 28, 28); } catch {}
         }
         // Nombre iglesia centrado
         doc.setFontSize(14); doc.setFont("helvetica", "bold");
@@ -3143,23 +3148,16 @@ function ModuloVisitas() {
 
       // ── Pie de página con firma ────────────────────────────
       const dibujarPie = (numeroCarta) => {
-        // Firma del pastor centrada
-        const yFirma = 238;
+        // Firma del pastor centrada (más arriba)
+        const yFirma = 220;
         if (firmaB64) {
           try { doc.addImage(firmaB64, "JPEG", 80, yFirma, 50, 30); } catch {}
         }
-        // Línea de firma
+        // Nombre del pastor (sin línea en blanco, sin duplicados)
         const yLinea = yFirma + 32;
-        doc.setDrawColor(30, 30, 30);
-        doc.setLineWidth(0.3);
-        doc.line(75, yLinea, 135, yLinea);
-        // Nombre y cargo del pastor
         doc.setFontSize(9); doc.setFont("helvetica", "bold");
         doc.setTextColor(30, 30, 30);
         doc.text(datos.pastor_firma || "Pastor/a", 105, yLinea + 5, { align: "center" });
-        doc.setFontSize(8); doc.setFont("helvetica", "normal");
-        doc.text(datos.cargo_pastor || "Pastor", 105, yLinea + 9, { align: "center" });
-        doc.text(datos.iglesia || "Unión Pentecostal", 105, yLinea + 13, { align: "center" });
         // Línea separadora pie de página
         const yPie = 278;
         doc.setDrawColor(30, 45, 90);
