@@ -3096,7 +3096,7 @@ function ModuloVisitas() {
 
       const [escudoB64, logoB64, firmaB64] = await Promise.all([
         cargarImagen("/escudo.jpg"),
-        cargarImagen("/logo-white.png"),
+        cargarImagen("/logo-navy.png"),
         cargarImagen("/firma-pastor.jpg"),
       ]);
 
@@ -3108,7 +3108,7 @@ function ModuloVisitas() {
         }
         // Logo blanco arriba a la derecha
         if (logoB64) {
-          try { doc.addImage(logoB64, "PNG", 165, y, 35, 35); } catch {}
+          try { doc.addImage(logoB64, "PNG", 172, y, 25, 25); } catch {}
         }
         // Nombre iglesia centrado
         doc.setFontSize(14); doc.setFont("helvetica", "bold");
@@ -3149,7 +3149,7 @@ function ModuloVisitas() {
       // ── Pie de página con firma ────────────────────────────
       const dibujarPie = (numeroCarta) => {
         // Firma del pastor centrada (más arriba aún)
-        const yFirma = 200;
+        const yFirma = 175;
         if (firmaB64) {
           try { doc.addImage(firmaB64, "JPEG", 80, yFirma, 50, 30); } catch {}
         }
@@ -4037,14 +4037,14 @@ function GeneradorDocumentos({ miembro }) {
         img.onerror = () => resolve(null);
         img.src = src;
       });
-      const [escudoB64, logoB64, firmaB64] = await Promise.all([cargarImg("/escudo.jpg"), cargarImg("/logo-white.png"), cargarImg("/firma-pastor.jpg")]);
+      const [escudoB64, logoB64, firmaB64] = await Promise.all([cargarImg("/escudo.jpg"), cargarImg("/logo-navy.png"), cargarImg("/firma-pastor.jpg")]);
 
       // ── Encabezado con escudo ─────────────────────────────
       if (escudoB64) {
         try { doc.addImage(escudoB64, "JPEG", margenX, y, 28, 28); } catch {}
       }
       if (logoB64) {
-        try { doc.addImage(logoB64, "PNG", 165, y, 35, 35); } catch {}
+        try { doc.addImage(logoB64, "PNG", 172, y, 25, 25); } catch {}
       }
       doc.setFontSize(14); doc.setFont("helvetica", "bold");
       doc.setTextColor(30, 45, 90);
@@ -4085,7 +4085,7 @@ function GeneradorDocumentos({ miembro }) {
       }
 
       // ── Firma con imagen ──────────────────────────────────
-      const yFirma = Math.max(y + 5, 195);
+      const yFirma = Math.max(y + 5, 170);
       if (firmaB64) {
         try { doc.addImage(firmaB64, "JPEG", 80, yFirma - 28, 50, 30); } catch {}
       }
