@@ -3190,10 +3190,6 @@ function ModuloVisitas() {
           espacio();
         }
         linea("El/la hermano/a ha sido recibido/a en nuestra congregación con gozo y le extendemos esta constancia como prueba de su presentación.", "left", false, 10);
-        espacio(16);
-        linea("_______________________________", "center", false, 10);
-        linea(datos.pastor_firma || "Pastor/a", "center", false, 10);
-        linea(datos.iglesia || "Unión Pentecostal", "center", false, 10);
         dibujarPie(datos.numero_acuse);
 
       } else if (tipo === "recomendacion") {
@@ -3224,11 +3220,6 @@ function ModuloVisitas() {
           espacio();
         }
         linea("Le recomendamos cordialmente a este/a hermano/a y le pedimos lo/la reciba con el amor de Cristo.", "left", false, 10);
-        espacio(16);
-        linea("_______________________________", "center", false, 10);
-        linea(datos.pastor_firma || "Pastor/a", "center", false, 10);
-        linea(datos.cargo_pastor || "Pastor", "center", false, 10);
-        linea(datos.iglesia || "Unión Pentecostal", "center", false, 10);
         dibujarPie(datos.numero_carta);
       }
 
