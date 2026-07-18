@@ -3108,7 +3108,7 @@ function ModuloVisitas() {
         }
         // Logo blanco arriba a la derecha
         if (logoB64) {
-          try { doc.addImage(logoB64, "PNG", 172, y, 28, 28); } catch {}
+          try { doc.addImage(logoB64, "PNG", 165, y, 35, 35); } catch {}
         }
         // Nombre iglesia centrado
         doc.setFontSize(14); doc.setFont("helvetica", "bold");
@@ -3148,8 +3148,8 @@ function ModuloVisitas() {
 
       // ── Pie de página con firma ────────────────────────────
       const dibujarPie = (numeroCarta) => {
-        // Firma del pastor centrada (más arriba)
-        const yFirma = 220;
+        // Firma del pastor centrada (más arriba aún)
+        const yFirma = 200;
         if (firmaB64) {
           try { doc.addImage(firmaB64, "JPEG", 80, yFirma, 50, 30); } catch {}
         }
@@ -3165,7 +3165,6 @@ function ModuloVisitas() {
         doc.line(mx, yPie, mx + aw, yPie);
         doc.setFontSize(8); doc.setFont("helvetica", "normal");
         doc.setTextColor(120, 120, 120);
-        doc.text(datos.iglesia || "Unión Pentecostal", mx, yPie + 4);
         if (numeroCarta) doc.text(`N°: ${numeroCarta}`, mx + aw, yPie + 4, { align: "right" });
         doc.text(`Generado: ${new Date().toLocaleDateString("es-ES")}`, 105, yPie + 4, { align: "center" });
       };
@@ -4054,7 +4053,7 @@ function GeneradorDocumentos({ miembro }) {
         try { doc.addImage(escudoB64, "JPEG", margenX, y, 28, 28); } catch {}
       }
       if (logoB64) {
-        try { doc.addImage(logoB64, "PNG", 172, y, 28, 28); } catch {}
+        try { doc.addImage(logoB64, "PNG", 165, y, 35, 35); } catch {}
       }
       doc.setFontSize(14); doc.setFont("helvetica", "bold");
       doc.setTextColor(30, 45, 90);
@@ -4095,7 +4094,7 @@ function GeneradorDocumentos({ miembro }) {
       }
 
       // ── Firma con imagen ──────────────────────────────────
-      const yFirma = Math.max(y + 5, 215);
+      const yFirma = Math.max(y + 5, 195);
       if (firmaB64) {
         try { doc.addImage(firmaB64, "JPEG", 80, yFirma - 28, 50, 30); } catch {}
       }
@@ -4109,7 +4108,6 @@ function GeneradorDocumentos({ miembro }) {
       doc.setDrawColor(30, 45, 90); doc.setLineWidth(0.3);
       doc.line(margenX, yPie, margenX + anchoTexto, yPie);
       doc.setFontSize(8); doc.setFont("helvetica", "normal"); doc.setTextColor(120, 120, 120);
-      doc.text(form.iglesia || "Unión Pentecostal", margenX, yPie + 4);
       doc.text(`Generado: ${new Date().toLocaleDateString("es-ES")}`, 105, yPie + 4, { align: "center" });
 
       const tipoLabel = tipo === "sancion" ? "Sancion" : "Licencia";
