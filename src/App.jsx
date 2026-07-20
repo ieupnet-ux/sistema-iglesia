@@ -3148,8 +3148,8 @@ function ModuloVisitas() {
 
       // ── Pie de página con firma ────────────────────────────
       const dibujarPie = (numeroCarta) => {
-        // Firma del pastor centrada (más arriba)
-        const yFirma = 155;
+        // Firma del pastor centrada
+        const yFirma = 190;
         if (firmaB64) {
           try { doc.addImage(firmaB64, "JPEG", 80, yFirma, 50, 40); } catch {}
         }
@@ -4085,7 +4085,7 @@ function GeneradorDocumentos({ miembro }) {
       }
 
       // ── Firma con imagen ──────────────────────────────────
-      const yFirma = Math.max(y + 5, 150);
+      const yFirma = Math.max(y + 15, 185);
       if (firmaB64) {
         try { doc.addImage(firmaB64, "JPEG", 80, yFirma - 28, 50, 40); } catch {}
       }
