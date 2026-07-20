@@ -3214,6 +3214,11 @@ function ModuloVisitas() {
           linea(datos.motivo, "left", false, 10);
           espacio();
         }
+        if (datos.tipo === "visita_temporal" && datos.fecha_hasta) {
+          linea("VISITA HASTA:", "left", true, 10);
+          linea(new Date(datos.fecha_hasta + "T12:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" }), "left", false, 10);
+          espacio();
+        }
         if (datos.observaciones) {
           linea("OBSERVACIONES:", "left", true, 10);
           linea(datos.observaciones, "left", false, 10);
@@ -3317,6 +3322,7 @@ function ModuloVisitas() {
                           <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap", alignItems: "center" }}>
                             <Badge label={TIPO_LABEL[v.tipo] || v.tipo} role="accent" />
                             <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Emitida: {fmtDate(v.fecha_emision)}</span>
+                            {v.tipo === "visita_temporal" && v.fecha_hasta && <span style={{ fontSize: 12, color: "var(--text-warning)" }}>Hasta: {fmtDate(v.fecha_hasta)}</span>}
                             {v.numero_carta && <span style={{ fontSize: 12, color: "var(--text-muted)" }}>N°: {v.numero_carta}</span>}
                           </div>
                           {v.motivo && <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 6 }}>{v.motivo}</div>}
@@ -3419,6 +3425,7 @@ function ModalVisita({ modal, miembros, usuario, onClose, onSaved, onGenerarPDF 
         ciudad_destino: form.ciudad_destino || null,
         numero_carta: form.numero_carta || null,
         fecha_emision: form.fecha_emision || today(),
+        fecha_hasta: form.tipo === "visita_temporal" ? (form.fecha_hasta || null) : null,
         motivo: form.motivo || null,
         tipo: form.tipo || "recomendacion",
         observaciones: form.observaciones || null,
@@ -3461,6 +3468,7 @@ function ModalVisita({ modal, miembros, usuario, onClose, onSaved, onGenerarPDF 
       motivo: m.motivo,
       observaciones: m.observaciones,
       tipo: m.tipo,
+      fecha_hasta: m.fecha_hasta || null,
       numero_socio: form.numero_socio || m.numero_membresia || "",
     };
     onGenerarPDF("recomendacion", datos);
@@ -3524,6 +3532,9 @@ function ModalVisita({ modal, miembros, usuario, onClose, onSaved, onGenerarPDF 
             </Sel>
             <Inp label="Fecha de emisión" type="date" value={form.fecha_emision || today()} onChange={e => set("fecha_emision", e.target.value)} />
             <Inp label="N° de carta" value={form.numero_carta || ""} onChange={e => set("numero_carta", e.target.value)} placeholder="Ej: 001/2026" />
+            {form.tipo === "visita_temporal" && (
+              <Inp label="Visita hasta (fecha de regreso)" type="date" value={form.fecha_hasta || ""} onChange={e => set("fecha_hasta", e.target.value)} />
+            )}
           </div>
           <div style={{ marginBottom: 14 }}>
             <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 4 }}>Motivo</label>
