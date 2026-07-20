@@ -395,13 +395,14 @@ function Dashboard() {
   const { usuario } = useApp();
   const [stats, setStats] = useState(null);
   const [cumple, setCumple] = useState([]);
+  const [cumpleSemana, setCumpleSemana] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
       try {
         const [miembros, reuniones, asistencia] = await Promise.all([
-          sb.query("miembros", "?select=id,estado,fecha_nacimiento&estado=neq.retirado"),
+          sb.query("miembros", "?select=id,nombres,apellidos,estado,fecha_nacimiento&estado=neq.retirado"),
           sb.query("reuniones", `?fecha=gte.${new Date(Date.now() - 30*86400000).toISOString().split("T")[0]}&select=id,fecha`),
           sb.query("asistencia", `?created_at=gte.${new Date(Date.now() - 30*86400000).toISOString()}&select=estado`),
         ]);
@@ -411,6 +412,7 @@ function Dashboard() {
         const pct = asistencia.length ? Math.round(presentes / asistencia.length * 100) : 0;
         const hoy = cumpleañosHoy(miembros);
         setCumple(hoy);
+        setCumpleSemana(cumpleañosSemana(miembros));
         setStats({ total: miembros.length, activos, visitas, reuniones: reuniones.length, pct });
       } catch {}
       finally { setLoading(false); }
@@ -418,6 +420,29 @@ function Dashboard() {
   }, []);
 
   const cumpleañosHoy = (ms) => ms.filter(m => isBirthdayToday(m.fecha_nacimiento));
+
+  // Cumpleaños de la semana actual (domingo a sábado)
+  const cumpleañosSemana = (ms) => {
+    const hoy = new Date();
+    const inicioSemana = new Date(hoy);
+    inicioSemana.setDate(hoy.getDate() - hoy.getDay()); // Domingo
+    inicioSemana.setHours(0, 0, 0, 0);
+
+    const resultado = [];
+    for (let i = 0; i < 7; i++) {
+      const dia = new Date(inicioSemana);
+      dia.setDate(inicioSemana.getDate() + i);
+      const cumpleaneros = ms.filter(m => {
+        if (!m.fecha_nacimiento) return false;
+        const b = new Date(m.fecha_nacimiento + "T12:00:00");
+        return b.getMonth() === dia.getMonth() && b.getDate() === dia.getDate();
+      });
+      cumpleaneros.forEach(m => {
+        resultado.push({ ...m, diaSemana: dia, esHoy: dia.toDateString() === hoy.toDateString() });
+      });
+    }
+    return resultado;
+  };
 
   if (loading) return <Spinner />;
 
@@ -436,6 +461,33 @@ function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* Cumpleaños de la semana (domingo a sábado) */}
+      <div style={{ background: "var(--surface-1)", borderRadius: 12, padding: "16px 20px", marginBottom: 20 }}>
+        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+          <i className="ti ti-cake" style={{ fontSize: 18, color: "var(--text-warning)" }} aria-hidden />
+          Cumpleaños de la semana
+        </div>
+        {cumpleSemana.length === 0 ? (
+          <div style={{ fontSize: 13, color: "var(--text-muted)" }}>No hay cumpleaños esta semana</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {cumpleSemana.map(m => (
+              <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, background: m.esHoy ? "var(--bg-warning)" : "var(--surface-2)", border: `0.5px solid ${m.esHoy ? "var(--border-warning)" : "var(--border)"}` }}>
+                <span style={{ fontSize: 12, fontWeight: 500, color: m.esHoy ? "var(--text-warning)" : "var(--text-muted)", minWidth: 90, textTransform: "capitalize" }}>
+                  {m.diaSemana.toLocaleDateString("es-ES", { weekday: "long", day: "numeric" })}
+                </span>
+                <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)", flex: 1 }}>
+                  {m.apellidos}, {m.nombres} {m.esHoy && "🎂"}
+                </span>
+                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                  {fmtDate(m.fecha_nacimiento)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 28 }}>
         {[
