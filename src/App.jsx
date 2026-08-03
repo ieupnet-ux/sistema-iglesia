@@ -64,6 +64,25 @@ const sb = {
     localStorage.removeItem("iglesia_token"); localStorage.removeItem("iglesia_uid");
   },
 
+  async resetPasswordForEmail(email) {
+    const r = await fetch(`${this.url}/auth/v1/recover`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: this.key },
+      body: JSON.stringify({ email }),
+    });
+    return r.ok;
+  },
+
+  async updatePassword(newPassword) {
+    const r = await fetch(`${this.url}/auth/v1/user`, {
+      method: "PUT",
+      headers: this.headers(),
+      body: JSON.stringify({ password: newPassword }),
+    });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.message || "Error al cambiar contraseña"); }
+    return r.json();
+  },
+
   async query(table, params = "") {
     const r = await fetch(`${this.url}/rest/v1/${table}${params}`, { headers: this.headers() });
     if (!r.ok) { const e = await r.json(); throw new Error(e.message || "Error"); }
@@ -271,9 +290,11 @@ function Avatar({ foto, nombre, size = 36 }) {
 function LoginPage({ onLogin }) {
   const [email, setEmail] = useState(""), [pass, setPass] = useState("");
   const [loading, setLoading] = useState(false), [error, setError] = useState("");
+  const [modo, setModo] = useState("login"); // "login" | "recuperar"
+  const [mensaje, setMensaje] = useState("");
 
   const handleLogin = async (e) => {
-    e.preventDefault(); setLoading(true); setError("");
+    e.preventDefault(); setLoading(true); setError(""); setMensaje("");
     try {
       const data = await sb.signIn(email, pass);
       if (!data.access_token) { setError(data.error_description || "Credenciales incorrectas"); return; }
@@ -285,6 +306,20 @@ function LoginPage({ onLogin }) {
     finally { setLoading(false); }
   };
 
+  const handleRecuperar = async (e) => {
+    e.preventDefault(); setLoading(true); setError(""); setMensaje("");
+    try {
+      const ok = await sb.resetPasswordForEmail(email);
+      if (ok) {
+        setMensaje("Te enviamos un correo con instrucciones para restablecer tu contraseña. Revisa tu bandeja de entrada y la carpeta de spam.");
+        setEmail("");
+      } else {
+        setError("No pudimos enviar el correo. Verifica que el email sea correcto.");
+      }
+    } catch (err) { setError(err.message || "Error al enviar correo"); }
+    finally { setLoading(false); }
+  };
+
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--surface-0)", padding: 20 }}>
       <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 16, padding: "40px 36px", width: "100%", maxWidth: 400 }}>
@@ -293,16 +328,42 @@ function LoginPage({ onLogin }) {
             <img src="/logo-navy.png" alt="Unión Pentecostal" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
           </div>
           <h1 style={{ margin: "0 0 6px", fontSize: 22, fontWeight: 500 }}>Unión Pentecostal</h1>
-          <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted)" }}>Gestión integral de miembros y asistencia</p>
+          <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted)" }}>
+            {modo === "login" ? "Gestión integral de miembros y asistencia" : "Recuperar contraseña"}
+          </p>
         </div>
-        <form onSubmit={handleLogin}>
-          <Inp label="Correo electrónico" type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="usuario@iglesia.com" autoFocus />
-          <Inp label="Contraseña" type="password" value={pass} onChange={e => setPass(e.target.value)} required placeholder="••••••••" />
-          {error && <div style={{ fontSize: 13, color: "var(--text-danger)", background: "var(--bg-danger)", padding: "8px 12px", borderRadius: 8, marginBottom: 14 }}>{error}</div>}
-          <Btn variant="primary" style={{ width: "100%", justifyContent: "center" }} loading={loading} icon="login">
-            {loading ? "Ingresando..." : "Ingresar al sistema"}
-          </Btn>
-        </form>
+
+        {modo === "login" ? (
+          <form onSubmit={handleLogin}>
+            <Inp label="Correo electrónico" type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="usuario@iglesia.com" autoFocus />
+            <Inp label="Contraseña" type="password" value={pass} onChange={e => setPass(e.target.value)} required placeholder="••••••••" />
+            {error && <div style={{ fontSize: 13, color: "var(--text-danger)", background: "var(--bg-danger)", padding: "8px 12px", borderRadius: 8, marginBottom: 14 }}>{error}</div>}
+            <Btn variant="primary" style={{ width: "100%", justifyContent: "center" }} loading={loading} icon="login">
+              {loading ? "Ingresando..." : "Ingresar al sistema"}
+            </Btn>
+            <div style={{ textAlign: "center", marginTop: 16 }}>
+              <button type="button" onClick={() => { setModo("recuperar"); setError(""); setMensaje(""); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "var(--text-accent)", textDecoration: "underline", fontFamily: "var(--font-sans)" }}>
+                ¿Olvidaste tu contraseña?
+              </button>
+            </div>
+          </form>
+        ) : (
+          <form onSubmit={handleRecuperar}>
+            <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 14 }}>Ingresa tu correo y te enviaremos instrucciones para restablecer tu contraseña.</p>
+            <Inp label="Correo electrónico" type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="usuario@iglesia.com" autoFocus />
+            {mensaje && <div style={{ fontSize: 13, color: "var(--text-success)", background: "var(--bg-success)", padding: "10px 12px", borderRadius: 8, marginBottom: 14 }}>{mensaje}</div>}
+            {error && <div style={{ fontSize: 13, color: "var(--text-danger)", background: "var(--bg-danger)", padding: "8px 12px", borderRadius: 8, marginBottom: 14 }}>{error}</div>}
+            <Btn variant="primary" style={{ width: "100%", justifyContent: "center" }} loading={loading} icon="mail">
+              {loading ? "Enviando..." : "Enviar instrucciones"}
+            </Btn>
+            <div style={{ textAlign: "center", marginTop: 16 }}>
+              <button type="button" onClick={() => { setModo("login"); setError(""); setMensaje(""); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "var(--text-accent)", textDecoration: "underline", fontFamily: "var(--font-sans)" }}>
+                ← Volver al inicio de sesión
+              </button>
+            </div>
+          </form>
+        )}
+
         <p style={{ textAlign: "center", fontSize: 12, color: "var(--text-muted)", marginTop: 24, marginBottom: 0 }}>¿Sin acceso? Contacta al administrador</p>
       </div>
     </div>
@@ -1662,6 +1723,53 @@ function ModuloReportes() {
 }
 
 // ─────────────────────────────────────────────────────────────
+// SECCIÓN: MI CUENTA (cambio de contraseña propia)
+// ─────────────────────────────────────────────────────────────
+function SeccionMiCuenta({ usuario, toast }) {
+  const [nuevaPass, setNuevaPass] = useState("");
+  const [confirmarPass, setConfirmarPass] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const handleCambiar = async (e) => {
+    e.preventDefault();
+    if (nuevaPass.length < 6) { toast("La contraseña debe tener al menos 6 caracteres", "warn"); return; }
+    if (nuevaPass !== confirmarPass) { toast("Las contraseñas no coinciden", "warn"); return; }
+    setSaving(true);
+    try {
+      await sb.updatePassword(nuevaPass);
+      toast("Contraseña actualizada correctamente ✓", "ok");
+      setNuevaPass(""); setConfirmarPass("");
+    } catch (err) {
+      toast(err.message || "Error al cambiar contraseña", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 20, maxWidth: 500 }}>
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 4 }}>Datos de la cuenta</div>
+        <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>Correo: <strong>{usuario?.email || "—"}</strong></div>
+        <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>Rol: <strong>{usuario?.roles_sistema?.nombre || "—"}</strong></div>
+        {usuario?.templos?.nombre && <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>Templo: <strong>{usuario.templos.nombre}</strong></div>}
+      </div>
+
+      <div style={{ borderTop: "0.5px solid var(--border)", paddingTop: 20 }}>
+        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 12 }}>Cambiar mi contraseña</div>
+        <form onSubmit={handleCambiar}>
+          <Inp label="Nueva contraseña" type="password" value={nuevaPass} onChange={e => setNuevaPass(e.target.value)} required placeholder="Mínimo 6 caracteres" autoComplete="new-password" />
+          <Inp label="Confirmar contraseña" type="password" value={confirmarPass} onChange={e => setConfirmarPass(e.target.value)} required placeholder="Repite la contraseña" autoComplete="new-password" />
+          <Btn variant="primary" icon="lock" loading={saving} style={{ marginTop: 4 }}>
+            {saving ? "Actualizando..." : "Actualizar contraseña"}
+          </Btn>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // MÓDULO CONFIGURACIÓN
 // ─────────────────────────────────────────────────────────────
 function ModuloConfig() {
@@ -1674,6 +1782,7 @@ function ModuloConfig() {
   const [newHora, setNewHora] = useState("");
 
   const TABS = [
+    { id: "mi_cuenta", label: "Mi cuenta", icon: "user-cog" },
     { id: "templos", label: "Templos", icon: "building-church" },
     { id: "cargos", label: "Cargos", icon: "briefcase" },
     { id: "grupos", label: "Grupos", icon: "users-group" },
@@ -1682,6 +1791,7 @@ function ModuloConfig() {
   ];
 
   const cargar = async () => {
+    if (tab === "mi_cuenta") { setItems([]); return; }
     setLoading(true);
     try {
       let q = "?order=nombre";
@@ -1734,7 +1844,7 @@ function ModuloConfig() {
         ))}
       </div>
 
-      {canEdit && tab !== "usuarios_sistema" && (
+      {canEdit && tab !== "usuarios_sistema" && tab !== "mi_cuenta" && (
         <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 16, marginBottom: 20 }}>
           <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 12, color: "var(--text-secondary)" }}>
             Agregar {TABS.find(t => t.id === tab)?.label.slice(0, -1).toLowerCase()}
@@ -1758,7 +1868,9 @@ function ModuloConfig() {
         </div>
       )}
 
-      {loading ? <Spinner /> : (
+      {tab === "mi_cuenta" && <SeccionMiCuenta usuario={usuario} toast={toast} />}
+
+      {tab !== "mi_cuenta" && loading ? <Spinner /> : tab !== "mi_cuenta" && (
         <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
           {items.length === 0 ? (
             <div style={{ textAlign: "center", padding: 32, color: "var(--text-muted)", fontSize: 13 }}>No hay registros</div>
@@ -1783,6 +1895,18 @@ function ModuloConfig() {
                         <Badge label={item.activo ? "activo" : "inactivo"} />
                       )}
                     </td>
+                    {canEdit && tab === "usuarios_sistema" && item.email && (
+                      <td style={{ padding: "10px 16px", textAlign: "right", width: 130 }}>
+                        <Btn small variant="warning" icon="key" onClick={async () => {
+                          if (!window.confirm(`¿Enviar correo de restablecimiento de contraseña a ${item.email}?`)) return;
+                          try {
+                            const ok = await sb.resetPasswordForEmail(item.email);
+                            if (ok) toast(`Correo enviado a ${item.email} ✓`, "ok");
+                            else toast("Error al enviar correo", "error");
+                          } catch (e) { toast(e.message, "error"); }
+                        }}>Reset pass</Btn>
+                      </td>
+                    )}
                     {canEdit && tab !== "usuarios_sistema" && (
                       <td style={{ padding: "10px 16px", textAlign: "right", width: 100 }}>
                         <Btn small variant={item.activo ? "danger" : "success"} onClick={() => toggleActivo(item)}>
