@@ -2611,6 +2611,8 @@ function ModuloTareas() {
   const [busqueda, setBusqueda] = useState("");
   const [filtroDesde, setFiltroDesde] = useState(today());
   const [filtroHasta, setFiltroHasta] = useState("");
+  const [ordenCol, setOrdenCol] = useState("fecha_vencimiento"); // Columna por la que ordenar
+  const [ordenDir, setOrdenDir] = useState("asc"); // "asc" | "desc"
 
   const ESTADOS = [
     { val: "pendiente", label: "Pendiente", role: "warning" },
@@ -2648,7 +2650,39 @@ function ModuloTareas() {
     const matchDesde = !filtroDesde || (t.fecha_vencimiento && t.fecha_vencimiento >= filtroDesde);
     const matchHasta = !filtroHasta || (t.fecha_vencimiento && t.fecha_vencimiento <= filtroHasta);
     return matchQ && matchE && matchP && matchM && matchDesde && matchHasta;
+  }).sort((a, b) => {
+    const dir = ordenDir === "asc" ? 1 : -1;
+    if (ordenCol === "titulo") return dir * (a.titulo || "").localeCompare(b.titulo || "");
+    if (ordenCol === "miembro") {
+      const nA = `${a.miembros?.apellidos || ""} ${a.miembros?.nombres || ""}`;
+      const nB = `${b.miembros?.apellidos || ""} ${b.miembros?.nombres || ""}`;
+      return dir * nA.localeCompare(nB);
+    }
+    if (ordenCol === "prioridad") {
+      const ord = { alta: 3, media: 2, baja: 1 };
+      return dir * ((ord[a.prioridad] || 0) - (ord[b.prioridad] || 0));
+    }
+    if (ordenCol === "estado") {
+      const ord = { pendiente: 1, en_progreso: 2, completada: 3, cancelada: 4 };
+      return dir * ((ord[a.estado] || 0) - (ord[b.estado] || 0));
+    }
+    if (ordenCol === "fecha_vencimiento") {
+      if (!a.fecha_vencimiento && !b.fecha_vencimiento) return 0;
+      if (!a.fecha_vencimiento) return 1;
+      if (!b.fecha_vencimiento) return -1;
+      return dir * a.fecha_vencimiento.localeCompare(b.fecha_vencimiento);
+    }
+    return 0;
   });
+
+  const toggleOrden = (col) => {
+    if (ordenCol === col) {
+      setOrdenDir(ordenDir === "asc" ? "desc" : "asc");
+    } else {
+      setOrdenCol(col);
+      setOrdenDir("asc");
+    }
+  };
 
   const conteo = { pendiente: 0, en_progreso: 0, completada: 0, cancelada: 0 };
   tareas.forEach(t => { if (conteo[t.estado] !== undefined) conteo[t.estado]++; });
@@ -2837,8 +2871,27 @@ function ModuloTareas() {
           <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "auto" }}>
             <thead>
               <tr style={{ background: "var(--surface-1)" }}>
-                {["Tarea", "Asignado a", "Prioridad", "Estado", "Vencimiento", "Acciones"].map((h, i) => (
-                  <th key={i} style={{ padding: "10px 14px", fontSize: 12, fontWeight: 500, color: "var(--text-secondary)", textAlign: "left", borderBottom: "0.5px solid var(--border)", width: [null, 180, 100, 110, 110, 200][i] }}>{h}</th>
+                {[
+                  { label: "Tarea", col: "titulo" },
+                  { label: "Asignado a", col: "miembro" },
+                  { label: "Prioridad", col: "prioridad" },
+                  { label: "Estado", col: "estado" },
+                  { label: "Vencimiento", col: "fecha_vencimiento" },
+                  { label: "Acciones", col: null },
+                ].map((h, i) => (
+                  <th key={i}
+                    onClick={h.col ? () => toggleOrden(h.col) : undefined}
+                    style={{ padding: "10px 14px", fontSize: 12, fontWeight: 500, color: "var(--text-secondary)", textAlign: "left", borderBottom: "0.5px solid var(--border)", width: [null, 180, 100, 110, 110, 200][i], cursor: h.col ? "pointer" : "default", userSelect: "none" }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      {h.label}
+                      {h.col && ordenCol === h.col && (
+                        <i className={`ti ti-${ordenDir === "asc" ? "chevron-up" : "chevron-down"}`} style={{ fontSize: 14, color: "var(--text-accent)" }} aria-hidden />
+                      )}
+                      {h.col && ordenCol !== h.col && (
+                        <i className="ti ti-arrows-sort" style={{ fontSize: 12, color: "var(--text-muted)", opacity: 0.4 }} aria-hidden />
+                      )}
+                    </span>
+                  </th>
                 ))}
               </tr>
             </thead>
