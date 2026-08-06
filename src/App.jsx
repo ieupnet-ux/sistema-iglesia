@@ -164,7 +164,7 @@ const isBirthdayToday = (dob) => {
 };
 const ESTADO_COLORS = { presente: "#10B981", ausente: "#EF4444", justificado: "#F59E0B", tarde: "#3B82F6" };
 const PIE_COLORS = ["#178CC7","#17A57A","#D85A30","#8B5CF6","#F59E0B","#EF4444"];
-const PERMS = { superadmin: ["todo"], admin: ["miembros","asistencia","reportes","config"], secretario: ["miembros","asistencia"], lector: ["reportes"] };
+const PERMS = { superadmin: ["todo"], admin: ["miembros","asistencia","reportes","config"], secretario: ["miembros","asistencia","reportes"], lector: ["reportes"] };
 const canDo = (usuario, perm) => {
   if (!usuario) return false;
   const rol = usuario.roles_sistema?.nombre;
@@ -377,9 +377,9 @@ const NAV_ITEMS = [
   { id: "dashboard", icon: "layout-dashboard", label: "Inicio", perm: null, role: "accent" },
   { id: "miembros", icon: "users", label: "Miembros", perm: "miembros", role: "pro" },
   { id: "asistencia", icon: "clipboard-check", label: "Asistencia", perm: "asistencia", role: "success" },
-  { id: "historial", icon: "user-search", label: "Historial", perm: "asistencia", role: "warning" },
+  { id: "historial", icon: "user-search", label: "Historial", perm: "reportes", role: "warning" },
   { id: "tareas", icon: "checklist", label: "Tareas", perm: "asistencia", role: "danger" },
-  { id: "estadisticas_tareas", icon: "chart-dots-3", label: "Estadísticas", perm: "asistencia", role: "pro" },
+  { id: "estadisticas_tareas", icon: "chart-dots-3", label: "Estadísticas", perm: "reportes", role: "pro" },
   { id: "visitas", icon: "mail", label: "Visitas", perm: "config", role: "warning" },
   { id: "legajos", icon: "folder-open", label: "Legajos", perm: "config", role: "pro" },
   { id: "reportes", icon: "chart-bar", label: "Reportes", perm: "reportes", role: "danger" },
@@ -1538,6 +1538,7 @@ function ModuloReportes() {
   const { toast } = useApp();
   const [templos, setTemplos] = useState([]);
   const [tiposReunion, setTiposReunion] = useState([]);
+  const [miembros, setMiembros] = useState([]);
   const [datos, setDatos] = useState(null);
   const [loading, setLoading] = useState(false);
   const [filtros, setFiltros] = useState({
@@ -1545,15 +1546,17 @@ function ModuloReportes() {
     hasta: today(),
     templo_id: "",
     tipo_reunion_id: "",
+    miembro_id: "",
   });
 
   useEffect(() => {
     (async () => {
-      const [ts, trs] = await Promise.all([
+      const [ts, trs, ms] = await Promise.all([
         sb.query("templos", "?activo=eq.true&order=nombre"),
         sb.query("tipos_reunion", "?activo=eq.true&order=nombre"),
+        sb.query("miembros", "?select=id,nombres,apellidos&estado=neq.retirado&order=apellidos.asc"),
       ]);
-      setTemplos(ts); setTiposReunion(trs);
+      setTemplos(ts); setTiposReunion(trs); setMiembros(ms);
     })();
   }, []);
 
@@ -1569,7 +1572,9 @@ function ModuloReportes() {
       if (!todasReuniones.length) { toast("No hay reuniones en ese período", "warn"); setLoading(false); return; }
 
       const reunionIds = todasReuniones.map(r => r.id).join(",");
-      const asistencia = await sb.query("asistencia", `?reunion_id=in.(${reunionIds})&select=reunion_id,estado`);
+      let qA = `?reunion_id=in.(${reunionIds})&select=reunion_id,estado,miembro_id`;
+      if (filtros.miembro_id) qA += `&miembro_id=eq.${filtros.miembro_id}`;
+      const asistencia = await sb.query("asistencia", qA);
 
       if (!asistencia.length) { toast("No hay registros de asistencia en ese período", "warn"); setLoading(false); return; }
 
@@ -1627,7 +1632,7 @@ function ModuloReportes() {
       <SectionHeader title="Reportes y gráficos" icon="chart-bar" role="danger" />
 
       <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: isMobile ? 16 : 20, marginBottom: 24 }}>
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr auto", gap: 12, alignItems: "end" }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr 1fr auto", gap: 12, alignItems: "end" }}>
           <Inp label="Desde" type="date" value={filtros.desde} onChange={e => setF("desde", e.target.value)} />
           <Inp label="Hasta" type="date" value={filtros.hasta} onChange={e => setF("hasta", e.target.value)} />
           <Sel label="Templo" value={filtros.templo_id} onChange={e => setF("templo_id", e.target.value)}>
@@ -1637,6 +1642,10 @@ function ModuloReportes() {
           <Sel label="Tipo reunión" value={filtros.tipo_reunion_id} onChange={e => setF("tipo_reunion_id", e.target.value)}>
             <option value="">Todos los tipos</option>
             {tiposReunion.map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}
+          </Sel>
+          <Sel label="Miembro" value={filtros.miembro_id} onChange={e => setF("miembro_id", e.target.value)}>
+            <option value="">Todos los miembros</option>
+            {miembros.map(m => <option key={m.id} value={m.id}>{m.apellidos}, {m.nombres}</option>)}
           </Sel>
           <Btn variant="primary" icon="search" loading={loading} onClick={generarReporte} style={{ marginBottom: 14, gridColumn: isMobile ? "1 / -1" : "auto", justifyContent: "center" }}>
             Generar
