@@ -298,7 +298,7 @@ function LoginPage({ onLogin }) {
     try {
       const data = await sb.signIn(email, pass);
       if (!data.access_token) { setError(data.error_description || "Credenciales incorrectas"); return; }
-      const usuarios = await sb.query("usuarios_sistema", `?auth_id=eq.${data.user.id}&select=*,roles_sistema(id,nombre,descripcion,permisos),templos(id,nombre)`);
+      const usuarios = await sb.query("usuarios_sistema", `?auth_id=eq.${data.user.id}&select=*,roles_sistema(id,nombre,descripcion,permisos),templos(id,nombre),miembros(id,nombres,apellidos)`);
       if (!usuarios.length) { setError("Usuario no autorizado. Contacta al administrador."); sb.signOut(); return; }
       if (!usuarios[0].activo) { setError("Tu cuenta está desactivada."); sb.signOut(); return; }
       onLogin(usuarios[0]);
@@ -378,7 +378,7 @@ const NAV_ITEMS = [
   { id: "miembros", icon: "users", label: "Miembros", perm: "miembros", role: "pro" },
   { id: "asistencia", icon: "clipboard-check", label: "Asistencia", perm: "asistencia", role: "success" },
   { id: "historial", icon: "user-search", label: "Historial", perm: "reportes", role: "warning" },
-  { id: "tareas", icon: "checklist", label: "Tareas", perm: "asistencia", role: "danger" },
+  { id: "tareas", icon: "checklist", label: "Tareas", perm: "reportes", role: "danger" },
   { id: "estadisticas_tareas", icon: "chart-dots-3", label: "Estadísticas", perm: "reportes", role: "pro" },
   { id: "visitas", icon: "mail", label: "Visitas", perm: "config", role: "warning" },
   { id: "legajos", icon: "folder-open", label: "Legajos", perm: "config", role: "pro" },
@@ -2614,7 +2614,7 @@ function ModuloTareas() {
   const [modal, setModal] = useState(null); // null | {mode:"new"|"edit"|"view"|"reporte", data}
 
   // Filtros
-  const [filtroEstado, setFiltroEstado] = useState("");
+  const [filtroEstado, setFiltroEstado] = useState(canDo(usuario, "asistencia") ? "" : "pendiente");
   const [filtroPrioridad, setFiltroPrioridad] = useState("");
   const [filtroMiembro, setFiltroMiembro] = useState("");
   const [busqueda, setBusqueda] = useState("");
@@ -4691,7 +4691,7 @@ export default function App() {
   useEffect(() => {
     const ok = sb.restoreSession();
     if (ok) {
-      sb.query("usuarios_sistema", `?auth_id=eq.${sb.userId}&select=*,roles_sistema(id,nombre,descripcion,permisos),templos(id,nombre)`)
+      sb.query("usuarios_sistema", `?auth_id=eq.${sb.userId}&select=*,roles_sistema(id,nombre,descripcion,permisos),templos(id,nombre),miembros(id,nombres,apellidos)`)
         .then(us => { if (us.length && us[0].activo) setUsuario(us[0]); })
         .catch(() => {})
         .finally(() => setCheckingSession(false));
