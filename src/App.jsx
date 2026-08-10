@@ -298,7 +298,7 @@ function LoginPage({ onLogin }) {
     try {
       const data = await sb.signIn(email, pass);
       if (!data.access_token) { setError(data.error_description || "Credenciales incorrectas"); return; }
-      const usuarios = await sb.query("usuarios_sistema", `?auth_id=eq.${data.user.id}&select=*,roles_sistema(id,nombre,descripcion,permisos),templos(id,nombre),miembros(id,nombres,apellidos)`);
+      const usuarios = await sb.query("usuarios_sistema", `?auth_id=eq.${data.user.id}&select=*,roles_sistema(id,nombre,descripcion,permisos),templos(id,nombre)`);
       if (!usuarios.length) { setError("Usuario no autorizado. Contacta al administrador."); sb.signOut(); return; }
       if (!usuarios[0].activo) { setError("Tu cuenta está desactivada."); sb.signOut(); return; }
       onLogin(usuarios[0]);
@@ -4691,7 +4691,7 @@ export default function App() {
   useEffect(() => {
     const ok = sb.restoreSession();
     if (ok) {
-      sb.query("usuarios_sistema", `?auth_id=eq.${sb.userId}&select=*,roles_sistema(id,nombre,descripcion,permisos),templos(id,nombre),miembros(id,nombres,apellidos)`)
+      sb.query("usuarios_sistema", `?auth_id=eq.${sb.userId}&select=*,roles_sistema(id,nombre,descripcion,permisos),templos(id,nombre)`)
         .then(us => { if (us.length && us[0].activo) setUsuario(us[0]); })
         .catch(() => {})
         .finally(() => setCheckingSession(false));
