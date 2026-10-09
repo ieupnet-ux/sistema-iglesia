@@ -3288,18 +3288,48 @@ function ModuloDiagramacion() {
   const [diagramaciones, setDiagramaciones] = useState([]);
   const [loading, setLoading] = useState(true);
   const [generando, setGenerando] = useState(false);
+  const [modo, setModo] = useState("mes"); // "mes" | "periodo"
   const [mesActivo, setMesActivo] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   });
+  const [mesDesde, setMesDesde] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const [mesHasta, setMesHasta] = useState(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + 2); // 3 meses por defecto
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
 
-  // Carga miembros elegibles: con cargo "Ministerio" Y grupo "Oficial" o "Ayudante"
+  // Lista de meses "YYYY-MM" entre desde y hasta (ambos inclusive)
+  const mesesEnPeriodo = (desde, hasta) => {
+    const [yd, md] = desde.split("-").map(Number);
+    const [yh, mh] = hasta.split("-").map(Number);
+    const meses = [];
+    let y = yd, m = md;
+    while (y < yh || (y === yh && m <= mh)) {
+      meses.push(`${y}-${String(m).padStart(2, "0")}`);
+      m++;
+      if (m > 12) { m = 1; y++; }
+    }
+    return meses;
+  };
+
+  // Meses actualmente visibles según el modo
+  const mesesVisibles = modo === "mes" ? [mesActivo] : mesesEnPeriodo(mesDesde, mesHasta);
+
+  // Carga miembros elegibles y diagramaciones del/los mes(es) activo(s)
   const cargar = useCallback(async () => {
     setLoading(true);
     try {
+      const meses = modo === "mes" ? [mesActivo] : mesesEnPeriodo(mesDesde, mesHasta);
+      const filtroMes = meses.length === 1 ? `?mes=eq.${meses[0]}` : `?mes=in.(${meses.join(",")})`;
+
       const [ms, diag] = await Promise.all([
         sb.query("miembros", "?estado=eq.activo&select=id,nombres,apellidos,miembro_cargos(activo,cargos(nombre)),miembro_grupos(activo,grupos(nombre))&order=apellidos.asc"),
-        sb.query("diagramacion_dominical", `?mes=eq.${mesActivo}&select=*&order=fecha.asc`).catch(() => []),
+        sb.query("diagramacion_dominical", `${filtroMes}&select=*&order=fecha.asc`).catch(() => []),
       ]);
 
       const filtrados = ms.filter(m => {
@@ -3315,7 +3345,7 @@ function ModuloDiagramacion() {
     } finally {
       setLoading(false);
     }
-  }, [mesActivo, toast]);
+  }, [modo, mesActivo, mesDesde, mesHasta, toast]);
 
   useEffect(() => { cargar(); }, [cargar]);
 
@@ -3333,62 +3363,86 @@ function ModuloDiagramacion() {
     return domingos;
   };
 
-  // Algoritmo de asignación: evita que un miembro repita tarea en el mismo mes
+  const nombreDelMes = (yearMonth) => {
+    const [y, m] = yearMonth.split("-").map(Number);
+    return new Date(y, m - 1, 1).toLocaleDateString("es-ES", { month: "long", year: "numeric" });
+  };
+
+  // Algoritmo de asignación por mes:
+  //   - No repite la misma tarea al mismo miembro en el mismo mes
+  //   - Equilibra la carga de trabajo
+  //   - No da dos tareas al mismo miembro el mismo domingo
+  const asignarMes = (mes) => {
+    const domingos = domingosDelMes(mes);
+    const asignaciones = [];
+    const historialMes = {};
+    elegibles.forEach(m => { historialMes[m.id] = new Set(); });
+
+    for (const fecha of domingos) {
+      const ocupadosHoy = new Set();
+      for (const tarea of TAREAS_DOMINICALES) {
+        const candidatos = elegibles.filter(m => !historialMes[m.id].has(tarea) && !ocupadosHoy.has(m.id));
+        if (candidatos.length === 0) {
+          const libres = elegibles.filter(m => !ocupadosHoy.has(m.id));
+          if (libres.length === 0) continue;
+          libres.sort((a, b) => historialMes[a.id].size - historialMes[b.id].size);
+          const elegido = libres[0];
+          asignaciones.push({ mes, fecha, tarea, miembro_id: elegido.id });
+          historialMes[elegido.id].add(tarea);
+          ocupadosHoy.add(elegido.id);
+        } else {
+          candidatos.sort((a, b) => historialMes[a.id].size - historialMes[b.id].size);
+          const elegido = candidatos[0];
+          asignaciones.push({ mes, fecha, tarea, miembro_id: elegido.id });
+          historialMes[elegido.id].add(tarea);
+          ocupadosHoy.add(elegido.id);
+        }
+      }
+    }
+    return asignaciones;
+  };
+
   const generarDiagramacion = async () => {
     if (elegibles.length === 0) {
       toast("No hay miembros elegibles (requiere cargo 'Ministerio' + grupo 'Oficial' o 'Ayudante')", "warn");
       return;
     }
-    if (!window.confirm(`¿Generar diagramación para ${mesActivo}? Esto reemplazará la actual si existe.`)) return;
+    const meses = mesesVisibles;
+    if (modo === "periodo" && meses.length === 0) {
+      toast("Rango de meses inválido", "warn");
+      return;
+    }
+    const descripcion = modo === "mes"
+      ? mesActivo
+      : `${meses.length} mes(es): ${meses[0]} → ${meses[meses.length - 1]}`;
+    if (!window.confirm(`¿Generar diagramación para ${descripcion}? Esto reemplazará lo existente en ese rango.`)) return;
 
     setGenerando(true);
     try {
-      // Borrar diagramación existente del mes
+      // Borrar diagramación existente de los meses del rango
       if (diagramaciones.length > 0) {
         for (const d of diagramaciones) {
           await sb.delete("diagramacion_dominical", d.id);
         }
       }
 
-      const domingos = domingosDelMes(mesActivo);
-      const asignaciones = [];
-      // Historial: miembro_id -> Set de tareas ya asignadas este mes
-      const historialMes = {};
-      elegibles.forEach(m => { historialMes[m.id] = new Set(); });
+      // Generar asignaciones para cada mes (historial se resetea mes a mes)
+      let totalAsignaciones = [];
+      let totalDomingos = 0;
+      for (const mes of meses) {
+        const asig = asignarMes(mes);
+        totalAsignaciones = totalAsignaciones.concat(asig);
+        totalDomingos += domingosDelMes(mes).length;
+      }
 
-      // Para cada domingo, para cada tarea, elegir el miembro que:
-      //   1. No haya hecho esa tarea este mes
-      //   2. Tenga menos tareas asignadas en el mes (equilibrio)
-      //   3. No tenga otra tarea ese mismo domingo
-      for (const fecha of domingos) {
-        const ocupadosHoy = new Set();
-        for (const tarea of TAREAS_DOMINICALES) {
-          const candidatos = elegibles.filter(m => !historialMes[m.id].has(tarea) && !ocupadosHoy.has(m.id));
-          if (candidatos.length === 0) {
-            // Si todos ya hicieron la tarea, elegir uno libre ese domingo
-            const libres = elegibles.filter(m => !ocupadosHoy.has(m.id));
-            if (libres.length === 0) continue;
-            // Elegir con menos carga total
-            libres.sort((a, b) => historialMes[a.id].size - historialMes[b.id].size);
-            const elegido = libres[0];
-            asignaciones.push({ mes: mesActivo, fecha, tarea, miembro_id: elegido.id });
-            historialMes[elegido.id].add(tarea);
-            ocupadosHoy.add(elegido.id);
-          } else {
-            // Ordenar candidatos por menor carga en el mes
-            candidatos.sort((a, b) => historialMes[a.id].size - historialMes[b.id].size);
-            const elegido = candidatos[0];
-            asignaciones.push({ mes: mesActivo, fecha, tarea, miembro_id: elegido.id });
-            historialMes[elegido.id].add(tarea);
-            ocupadosHoy.add(elegido.id);
-          }
+      // Insertar en lotes de 100 para evitar timeouts
+      if (totalAsignaciones.length > 0) {
+        const BATCH = 100;
+        for (let i = 0; i < totalAsignaciones.length; i += BATCH) {
+          await sb.insert("diagramacion_dominical", totalAsignaciones.slice(i, i + BATCH));
         }
       }
-
-      if (asignaciones.length > 0) {
-        await sb.insert("diagramacion_dominical", asignaciones);
-      }
-      toast(`Diagramación generada: ${asignaciones.length} asignaciones en ${domingos.length} domingos ✓`, "ok");
+      toast(`Diagramación generada: ${totalAsignaciones.length} asignaciones en ${totalDomingos} domingos (${meses.length} mes/es) ✓`, "ok");
       cargar();
     } catch (e) {
       toast("Error: " + e.message, "error");
@@ -3397,8 +3451,10 @@ function ModuloDiagramacion() {
     }
   };
 
-  const limpiarMes = async () => {
-    if (!window.confirm(`¿Eliminar toda la diagramación de ${mesActivo}?`)) return;
+  const limpiarRango = async () => {
+    const meses = mesesVisibles;
+    const descripcion = modo === "mes" ? mesActivo : `${meses[0]} → ${meses[meses.length - 1]}`;
+    if (!window.confirm(`¿Eliminar toda la diagramación de ${descripcion}?`)) return;
     try {
       for (const d of diagramaciones) {
         await sb.delete("diagramacion_dominical", d.id);
@@ -3428,68 +3484,76 @@ function ModuloDiagramacion() {
       }
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-      const [y, m] = mesActivo.split("-").map(Number);
-      const nombreMes = new Date(y, m - 1, 1).toLocaleDateString("es-ES", { month: "long", year: "numeric" });
+      const meses = mesesVisibles;
+      const tituloRango = modo === "mes"
+        ? nombreDelMes(mesActivo)
+        : `${nombreDelMes(meses[0])} → ${nombreDelMes(meses[meses.length - 1])}`;
 
-      doc.setFontSize(16); doc.setFont("helvetica", "bold");
-      doc.setTextColor(30, 45, 90);
-      doc.text("Diagramación Dominical — " + nombreMes.charAt(0).toUpperCase() + nombreMes.slice(1), 148, 15, { align: "center" });
-
-      doc.setDrawColor(30, 45, 90); doc.setLineWidth(0.5);
-      doc.line(15, 20, 282, 20);
-
-      const domingos = domingosDelMes(mesActivo);
-      let yPos = 30;
-
-      // Encabezado tabla
-      doc.setFontSize(9); doc.setFont("helvetica", "bold");
-      doc.setFillColor(240, 240, 245);
-      doc.rect(15, yPos, 267, 8, "F");
-      doc.setTextColor(30, 30, 30);
-      doc.text("Domingo", 18, yPos + 5);
       const colWidth = 50;
-      TAREAS_DOMINICALES.forEach((t, i) => {
-        doc.text(t, 45 + i * colWidth, yPos + 5);
-      });
-      yPos += 8;
 
-      doc.setFont("helvetica", "normal"); doc.setFontSize(9);
-      domingos.forEach((fecha, idx) => {
-        if (idx % 2 === 0) {
-          doc.setFillColor(250, 250, 252);
-          doc.rect(15, yPos, 267, 10, "F");
-        }
-        const [, mm, dd] = fecha.split("-");
-        doc.setFont("helvetica", "bold"); doc.setTextColor(30, 45, 90);
-        doc.text(`${dd}/${mm}`, 18, yPos + 6);
-        doc.setFont("helvetica", "normal"); doc.setTextColor(40, 40, 40);
-        TAREAS_DOMINICALES.forEach((tarea, i) => {
-          const asig = diagramaciones.find(d => d.fecha === fecha && d.tarea === tarea);
-          const miembro = asig ? elegibles.find(m => m.id === asig.miembro_id) : null;
-          const nombre = miembro ? `${miembro.nombres} ${miembro.apellidos}` : "—";
-          const texto = nombre.length > 22 ? nombre.substring(0, 20) + "..." : nombre;
-          doc.text(texto, 45 + i * colWidth, yPos + 6);
+      meses.forEach((mes, idxMes) => {
+        if (idxMes > 0) doc.addPage();
+
+        const nombreMes = nombreDelMes(mes);
+        doc.setFontSize(16); doc.setFont("helvetica", "bold");
+        doc.setTextColor(30, 45, 90);
+        doc.text("Diagramación Dominical — " + nombreMes.charAt(0).toUpperCase() + nombreMes.slice(1), 148, 15, { align: "center" });
+
+        doc.setDrawColor(30, 45, 90); doc.setLineWidth(0.5);
+        doc.line(15, 20, 282, 20);
+
+        const domingos = domingosDelMes(mes);
+        let yPos = 30;
+
+        // Encabezado tabla
+        doc.setFontSize(9); doc.setFont("helvetica", "bold");
+        doc.setFillColor(240, 240, 245);
+        doc.rect(15, yPos, 267, 8, "F");
+        doc.setTextColor(30, 30, 30);
+        doc.text("Domingo", 18, yPos + 5);
+        TAREAS_DOMINICALES.forEach((t, i) => {
+          doc.text(t, 45 + i * colWidth, yPos + 5);
         });
-        yPos += 10;
+        yPos += 8;
+
+        doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+        domingos.forEach((fecha, idx) => {
+          if (idx % 2 === 0) {
+            doc.setFillColor(250, 250, 252);
+            doc.rect(15, yPos, 267, 10, "F");
+          }
+          const [, mm, dd] = fecha.split("-");
+          doc.setFont("helvetica", "bold"); doc.setTextColor(30, 45, 90);
+          doc.text(`${dd}/${mm}`, 18, yPos + 6);
+          doc.setFont("helvetica", "normal"); doc.setTextColor(40, 40, 40);
+          TAREAS_DOMINICALES.forEach((tarea, i) => {
+            const asig = diagramaciones.find(d => d.fecha === fecha && d.tarea === tarea);
+            const miembro = asig ? elegibles.find(m => m.id === asig.miembro_id) : null;
+            const nombre = miembro ? `${miembro.nombres} ${miembro.apellidos}` : "—";
+            const texto = nombre.length > 22 ? nombre.substring(0, 20) + "..." : nombre;
+            doc.text(texto, 45 + i * colWidth, yPos + 6);
+          });
+          yPos += 10;
+        });
+
+        doc.setFontSize(8); doc.setTextColor(120, 120, 120);
+        doc.text(`Generado: ${new Date().toLocaleDateString("es-ES")} · Página ${idxMes + 1} de ${meses.length}`, 148, 200, { align: "center" });
       });
 
-      doc.setFontSize(8); doc.setTextColor(120, 120, 120);
-      doc.text(`Generado: ${new Date().toLocaleDateString("es-ES")}`, 148, 200, { align: "center" });
-
-      doc.save(`Diagramacion_${mesActivo}.pdf`);
-      toast("PDF generado ✓", "ok");
+      const nombreArchivo = modo === "mes"
+        ? `Diagramacion_${mesActivo}.pdf`
+        : `Diagramacion_${meses[0]}_a_${meses[meses.length - 1]}.pdf`;
+      doc.save(nombreArchivo);
+      toast(`PDF generado (${meses.length} mes/es) ✓`, "ok");
     } catch (e) {
       toast("Error al generar PDF: " + e.message, "error");
     }
   };
 
-  const domingos = domingosDelMes(mesActivo);
-  const nombreMes = (() => {
-    const [y, m] = mesActivo.split("-").map(Number);
-    return new Date(y, m - 1, 1).toLocaleDateString("es-ES", { month: "long", year: "numeric" });
-  })();
+  // Total de domingos en el rango visible
+  const totalDomingos = mesesVisibles.reduce((acc, mes) => acc + domingosDelMes(mes).length, 0);
 
-  // Resumen por miembro: cuántas veces aparece en el mes
+  // Resumen por miembro en el rango visible
   const resumenPorMiembro = elegibles.map(m => {
     const asignaciones = diagramaciones.filter(d => d.miembro_id === m.id);
     const tareas = asignaciones.map(a => a.tarea);
@@ -3510,8 +3574,8 @@ function ModuloDiagramacion() {
               </Btn>
             )}
             {canEdit && diagramaciones.length > 0 && (
-              <Btn icon="trash" small variant="danger" onClick={limpiarMes}>
-                {isMobile ? "" : "Limpiar mes"}
+              <Btn icon="trash" small variant="danger" onClick={limpiarRango}>
+                {isMobile ? "" : (modo === "mes" ? "Limpiar mes" : "Limpiar período")}
               </Btn>
             )}
             {canEdit && (
@@ -3523,25 +3587,64 @@ function ModuloDiagramacion() {
         }
       />
 
-      {/* Selector de mes */}
+      {/* Selector de modo + rango */}
       <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 16, marginBottom: 20 }}>
-        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-          <div>
-            <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 4 }}>Mes a diagramar</label>
-            <input type="month" value={mesActivo} onChange={e => setMesActivo(e.target.value)} style={{ padding: "6px 10px", borderRadius: 8, border: "0.5px solid var(--border)", background: "var(--surface-1)", color: "var(--text-primary)", fontFamily: "var(--font-sans)" }} />
-          </div>
-          <div style={{ fontSize: 13, color: "var(--text-muted)", textTransform: "capitalize" }}>
-            <strong style={{ color: "var(--text-primary)" }}>{nombreMes}</strong>
-            {" · "}{domingos.length} domingo(s)
-            {" · "}{elegibles.length} miembro(s) elegible(s)
-          </div>
+        {/* Tabs modo */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+          {[
+            { id: "mes", icon: "calendar", label: "Un mes" },
+            { id: "periodo", icon: "calendar-month", label: "Período" },
+          ].map(opt => (
+            <button key={opt.id} onClick={() => setModo(opt.id)} style={{
+              padding: "6px 14px", borderRadius: 8,
+              border: `0.5px solid ${modo === opt.id ? "var(--border-success)" : "var(--border)"}`,
+              background: modo === opt.id ? "var(--bg-success)" : "transparent",
+              color: modo === opt.id ? "var(--text-success)" : "var(--text-secondary)",
+              fontSize: 13, fontFamily: "var(--font-sans)", cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 6,
+            }}>
+              <i className={`ti ti-${opt.icon}`} style={{ fontSize: 15 }} />
+              {opt.label}
+            </button>
+          ))}
         </div>
+
+        {/* Controles según el modo */}
+        {modo === "mes" ? (
+          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+            <div>
+              <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 4 }}>Mes a diagramar</label>
+              <input type="month" value={mesActivo} onChange={e => setMesActivo(e.target.value)} style={{ padding: "6px 10px", borderRadius: 8, border: "0.5px solid var(--border)", background: "var(--surface-1)", color: "var(--text-primary)", fontFamily: "var(--font-sans)" }} />
+            </div>
+            <div style={{ fontSize: 13, color: "var(--text-muted)", textTransform: "capitalize" }}>
+              <strong style={{ color: "var(--text-primary)" }}>{nombreDelMes(mesActivo)}</strong>
+              {" · "}{domingosDelMes(mesActivo).length} domingo(s)
+              {" · "}{elegibles.length} miembro(s) elegible(s)
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+            <div>
+              <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 4 }}>Desde</label>
+              <input type="month" value={mesDesde} onChange={e => setMesDesde(e.target.value)} style={{ padding: "6px 10px", borderRadius: 8, border: "0.5px solid var(--border)", background: "var(--surface-1)", color: "var(--text-primary)", fontFamily: "var(--font-sans)" }} />
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 4 }}>Hasta</label>
+              <input type="month" value={mesHasta} onChange={e => setMesHasta(e.target.value)} style={{ padding: "6px 10px", borderRadius: 8, border: "0.5px solid var(--border)", background: "var(--surface-1)", color: "var(--text-primary)", fontFamily: "var(--font-sans)" }} />
+            </div>
+            <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
+              <strong style={{ color: "var(--text-primary)" }}>{mesesVisibles.length} mes(es)</strong>
+              {" · "}{totalDomingos} domingo(s)
+              {" · "}{elegibles.length} miembro(s) elegible(s)
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Info de criterios */}
       <div style={{ background: "var(--bg-accent)", border: "0.5px solid var(--border-accent)", borderRadius: 10, padding: "10px 14px", marginBottom: 20, fontSize: 12, color: "var(--text-accent)" }}>
         <i className="ti ti-info-circle" style={{ marginRight: 6 }} />
-        Criterios: miembros con cargo <strong>"Ministerio"</strong> + grupo <strong>"Oficial"</strong> o <strong>"Ayudante"</strong>. Las tareas no se repiten al mismo miembro en el mismo mes.
+        Criterios: miembros con cargo <strong>"Ministerio"</strong> + grupo <strong>"Oficial"</strong> o <strong>"Ayudante"</strong>. Las tareas no se repiten al mismo miembro en el mismo mes (el historial se reinicia cada mes).
       </div>
 
       {loading ? <Spinner /> : elegibles.length === 0 ? (
@@ -3551,59 +3654,72 @@ function ModuloDiagramacion() {
         </div>
       ) : (
         <>
-          {/* Tabla de diagramación */}
-          <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, overflow: "hidden", marginBottom: 20, overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
-              <thead>
-                <tr style={{ background: "var(--surface-1)" }}>
-                  <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--text-secondary)", textAlign: "left", borderBottom: "0.5px solid var(--border)", width: 100 }}>Domingo</th>
-                  {TAREAS_DOMINICALES.map(t => (
-                    <th key={t} style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--text-secondary)", textAlign: "left", borderBottom: "0.5px solid var(--border)" }}>{t}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {domingos.length === 0 ? (
-                  <tr><td colSpan={6} style={{ padding: 20, textAlign: "center", color: "var(--text-muted)" }}>No hay domingos en el mes seleccionado</td></tr>
-                ) : domingos.map(fecha => {
-                  const [, mm, dd] = fecha.split("-");
-                  return (
-                    <tr key={fecha} style={{ borderBottom: "0.5px solid var(--border)" }}>
-                      <td style={{ padding: "10px 12px", fontSize: 13, fontWeight: 500, color: "var(--text-success)" }}>
-                        {dd}/{mm}
-                      </td>
-                      {TAREAS_DOMINICALES.map(tarea => {
-                        const asig = diagramaciones.find(d => d.fecha === fecha && d.tarea === tarea);
-                        const miembro = asig ? elegibles.find(m => m.id === asig.miembro_id) : null;
+          {/* Tabla(s) de diagramación — una por cada mes */}
+          {mesesVisibles.map(mes => {
+            const domingos = domingosDelMes(mes);
+            return (
+              <div key={mes} style={{ marginBottom: 20 }}>
+                {modo === "periodo" && (
+                  <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-success)", marginBottom: 8, textTransform: "capitalize", display: "flex", alignItems: "center", gap: 8 }}>
+                    <i className="ti ti-calendar" style={{ fontSize: 16 }} />
+                    {nombreDelMes(mes)}
+                  </div>
+                )}
+                <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, overflow: "hidden", overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
+                    <thead>
+                      <tr style={{ background: "var(--surface-1)" }}>
+                        <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--text-secondary)", textAlign: "left", borderBottom: "0.5px solid var(--border)", width: 100 }}>Domingo</th>
+                        {TAREAS_DOMINICALES.map(t => (
+                          <th key={t} style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--text-secondary)", textAlign: "left", borderBottom: "0.5px solid var(--border)" }}>{t}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {domingos.length === 0 ? (
+                        <tr><td colSpan={6} style={{ padding: 20, textAlign: "center", color: "var(--text-muted)" }}>No hay domingos en este mes</td></tr>
+                      ) : domingos.map(fecha => {
+                        const [, mm, dd] = fecha.split("-");
                         return (
-                          <td key={tarea} style={{ padding: "8px 12px", fontSize: 13 }}>
-                            {canEdit && asig ? (
-                              <select value={asig.miembro_id} onChange={e => cambiarAsignacion(asig, e.target.value)} style={{ fontSize: 12, padding: "4px 8px", width: "100%", maxWidth: 180 }}>
-                                {elegibles.map(m => (
-                                  <option key={m.id} value={m.id}>{m.apellidos}, {m.nombres}</option>
-                                ))}
-                              </select>
-                            ) : miembro ? (
-                              <span>{miembro.apellidos}, {miembro.nombres}</span>
-                            ) : (
-                              <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>Sin asignar</span>
-                            )}
-                          </td>
+                          <tr key={fecha} style={{ borderBottom: "0.5px solid var(--border)" }}>
+                            <td style={{ padding: "10px 12px", fontSize: 13, fontWeight: 500, color: "var(--text-success)" }}>
+                              {dd}/{mm}
+                            </td>
+                            {TAREAS_DOMINICALES.map(tarea => {
+                              const asig = diagramaciones.find(d => d.fecha === fecha && d.tarea === tarea);
+                              const miembro = asig ? elegibles.find(m => m.id === asig.miembro_id) : null;
+                              return (
+                                <td key={tarea} style={{ padding: "8px 12px", fontSize: 13 }}>
+                                  {canEdit && asig ? (
+                                    <select value={asig.miembro_id} onChange={e => cambiarAsignacion(asig, e.target.value)} style={{ fontSize: 12, padding: "4px 8px", width: "100%", maxWidth: 180 }}>
+                                      {elegibles.map(m => (
+                                        <option key={m.id} value={m.id}>{m.apellidos}, {m.nombres}</option>
+                                      ))}
+                                    </select>
+                                  ) : miembro ? (
+                                    <span>{miembro.apellidos}, {miembro.nombres}</span>
+                                  ) : (
+                                    <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>Sin asignar</span>
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </tr>
                         );
                       })}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })}
 
           {/* Resumen por miembro */}
           {diagramaciones.length > 0 && (
             <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 16 }}>
               <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
                 <i className="ti ti-chart-bar" style={{ fontSize: 18, color: "var(--text-pro)" }} />
-                Resumen por miembro — {nombreMes}
+                Resumen por miembro — {modo === "mes" ? nombreDelMes(mesActivo) : `${mesesVisibles.length} mes(es)`}
               </div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(280px, 1fr))", gap: 10 }}>
                 {resumenPorMiembro.map(({ miembro, total, tareas }) => (
