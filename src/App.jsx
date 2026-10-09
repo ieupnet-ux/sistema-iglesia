@@ -1540,6 +1540,9 @@ function ModuloReportes() {
   const [templos, setTemplos] = useState([]);
   const [tiposReunion, setTiposReunion] = useState([]);
   const [miembros, setMiembros] = useState([]);
+  const [miembrosFull, setMiembrosFull] = useState([]);
+  const [cargosList, setCargosList] = useState([]);
+  const [gruposList, setGruposList] = useState([]);
   const [datos, setDatos] = useState(null);
   const [loading, setLoading] = useState(false);
   const [filtros, setFiltros] = useState({
@@ -1548,16 +1551,23 @@ function ModuloReportes() {
     templo_id: "",
     tipo_reunion_id: "",
     miembro_id: "",
+    cargo_id: "",
+    grupo_id: "",
   });
 
   useEffect(() => {
     (async () => {
-      const [ts, trs, ms] = await Promise.all([
+      const [ts, trs, ms, cs, gs] = await Promise.all([
         sb.query("templos", "?activo=eq.true&order=nombre"),
         sb.query("tipos_reunion", "?activo=eq.true&order=nombre"),
-        sb.query("miembros", "?select=id,nombres,apellidos&estado=neq.retirado&order=apellidos.asc"),
+        sb.query("miembros", "?select=id,nombres,apellidos,miembro_cargos(activo,cargo_id),miembro_grupos(activo,grupo_id)&estado=neq.retirado&order=apellidos.asc"),
+        sb.query("cargos", "?activo=eq.true&order=nombre&select=id,nombre").catch(() => []),
+        sb.query("grupos", "?activo=eq.true&order=nombre&select=id,nombre").catch(() => []),
       ]);
-      setTemplos(ts); setTiposReunion(trs); setMiembros(ms);
+      setTemplos(ts); setTiposReunion(trs);
+      setMiembrosFull(ms || []);
+      setMiembros((ms || []).map(m => ({ id: m.id, nombres: m.nombres, apellidos: m.apellidos })));
+      setCargosList(cs || []); setGruposList(gs || []);
     })();
   }, []);
 
@@ -1572,9 +1582,24 @@ function ModuloReportes() {
       const todasReuniones = await sb.query("reuniones", qR);
       if (!todasReuniones.length) { toast("No hay reuniones en ese período", "warn"); setLoading(false); return; }
 
+      // Si hay filtro por cargo o grupo, resolver IDs de miembros que cumplen
+      let miembrosIds = null; // null = sin filtrar
+      if (filtros.cargo_id || filtros.grupo_id) {
+        miembrosIds = (miembrosFull || []).filter(m => {
+          const okCargo = !filtros.cargo_id || (m.miembro_cargos || []).some(mc => mc.activo && mc.cargo_id === filtros.cargo_id);
+          const okGrupo = !filtros.grupo_id || (m.miembro_grupos || []).some(mg => mg.activo && mg.grupo_id === filtros.grupo_id);
+          return okCargo && okGrupo;
+        }).map(m => m.id);
+        if (miembrosIds.length === 0) {
+          toast("No hay miembros con los filtros aplicados", "warn");
+          setLoading(false); return;
+        }
+      }
+
       const reunionIds = todasReuniones.map(r => r.id).join(",");
       let qA = `?reunion_id=in.(${reunionIds})&select=reunion_id,estado,miembro_id`;
       if (filtros.miembro_id) qA += `&miembro_id=eq.${filtros.miembro_id}`;
+      else if (miembrosIds) qA += `&miembro_id=in.(${miembrosIds.join(",")})`;
       const asistencia = await sb.query("asistencia", qA);
 
       if (!asistencia.length) { toast("No hay registros de asistencia en ese período", "warn"); setLoading(false); return; }
@@ -1633,7 +1658,7 @@ function ModuloReportes() {
       <SectionHeader title="Reportes y gráficos" icon="chart-bar" role="danger" />
 
       <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: isMobile ? 16 : 20, marginBottom: 24 }}>
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr 1fr auto", gap: 12, alignItems: "end" }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 12, alignItems: "end" }}>
           <Inp label="Desde" type="date" value={filtros.desde} onChange={e => setF("desde", e.target.value)} />
           <Inp label="Hasta" type="date" value={filtros.hasta} onChange={e => setF("hasta", e.target.value)} />
           <Sel label="Templo" value={filtros.templo_id} onChange={e => setF("templo_id", e.target.value)}>
@@ -1644,13 +1669,26 @@ function ModuloReportes() {
             <option value="">Todos los tipos</option>
             {tiposReunion.map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}
           </Sel>
+          <Sel label="Cargo" value={filtros.cargo_id} onChange={e => setF("cargo_id", e.target.value)}>
+            <option value="">Todos los cargos</option>
+            {cargosList.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </Sel>
+          <Sel label="Grupo" value={filtros.grupo_id} onChange={e => setF("grupo_id", e.target.value)}>
+            <option value="">Todos los grupos</option>
+            {gruposList.map(g => <option key={g.id} value={g.id}>{g.nombre}</option>)}
+          </Sel>
           <Sel label="Miembro" value={filtros.miembro_id} onChange={e => setF("miembro_id", e.target.value)}>
             <option value="">Todos los miembros</option>
             {miembros.map(m => <option key={m.id} value={m.id}>{m.apellidos}, {m.nombres}</option>)}
           </Sel>
-          <Btn variant="primary" icon="search" loading={loading} onClick={generarReporte} style={{ marginBottom: 14, gridColumn: isMobile ? "1 / -1" : "auto", justifyContent: "center" }}>
-            Generar
-          </Btn>
+          <div style={{ display: "flex", gap: 6, alignItems: "flex-end", marginBottom: 14 }}>
+            <Btn variant="primary" icon="search" loading={loading} onClick={generarReporte} style={{ flex: 1, justifyContent: "center" }}>
+              Generar
+            </Btn>
+            {(filtros.templo_id || filtros.tipo_reunion_id || filtros.cargo_id || filtros.grupo_id || filtros.miembro_id) && (
+              <Btn icon="x" small onClick={() => setFiltros(f => ({ ...f, templo_id: "", tipo_reunion_id: "", cargo_id: "", grupo_id: "", miembro_id: "" }))} title="Limpiar filtros" />
+            )}
+          </div>
         </div>
       </div>
 
