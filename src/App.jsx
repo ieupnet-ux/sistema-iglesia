@@ -1954,6 +1954,14 @@ function ModuloHistorial() {
   const [miembroSel, setMiembroSel] = useState(null);
   const [buscando, setBuscando] = useState(false);
 
+  // Filtros de miembros (cargos / grupos)
+  const [filtroCargoBusq, setFiltroCargoBusq] = useState("");
+  const [filtroGrupoBusq, setFiltroGrupoBusq] = useState("");
+  const [cargosList, setCargosList] = useState([]);
+  const [gruposList, setGruposList] = useState([]);
+  const [listaFiltrada, setListaFiltrada] = useState([]); // Miembros que matchean el cargo/grupo
+  const [cargandoLista, setCargandoLista] = useState(false);
+
   // Filtros del historial
   const [desde, setDesde] = useState(new Date(Date.now() - 180 * 86400000).toISOString().split("T")[0]);
   const [hasta, setHasta] = useState(today());
@@ -1971,9 +1979,31 @@ function ModuloHistorial() {
 
   useEffect(() => {
     sb.query("tipos_reunion", "?activo=eq.true&order=nombre").then(setTiposReunion).catch(() => {});
+    sb.query("cargos", "?activo=eq.true&order=nombre&select=id,nombre").then(setCargosList).catch(() => {});
+    sb.query("grupos", "?activo=eq.true&order=nombre&select=id,nombre").then(setGruposList).catch(() => {});
   }, []);
 
-  // Buscar miembros mientras escribe
+  // Cuando se selecciona cargo o grupo: traer lista de miembros que cumplen
+  useEffect(() => {
+    if (!filtroCargoBusq && !filtroGrupoBusq) { setListaFiltrada([]); return; }
+    (async () => {
+      setCargandoLista(true);
+      try {
+        const ms = await sb.query("miembros",
+          `?estado=neq.retirado&select=id,nombres,apellidos,foto_url,estado,templos(nombre),miembro_cargos(activo,cargo_id,cargos(nombre)),miembro_grupos(activo,grupo_id,grupos(nombre))&order=apellidos.asc`
+        );
+        const filtrados = ms.filter(m => {
+          const okCargo = !filtroCargoBusq || (m.miembro_cargos || []).some(mc => mc.activo && mc.cargo_id === filtroCargoBusq);
+          const okGrupo = !filtroGrupoBusq || (m.miembro_grupos || []).some(mg => mg.activo && mg.grupo_id === filtroGrupoBusq);
+          return okCargo && okGrupo;
+        });
+        setListaFiltrada(filtrados);
+      } catch { setListaFiltrada([]); }
+      finally { setCargandoLista(false); }
+    })();
+  }, [filtroCargoBusq, filtroGrupoBusq]);
+
+  // Buscar miembros mientras escribe (respeta filtros de cargo y grupo)
   useEffect(() => {
     if (busqueda.length < 2) { setSugerencias([]); return; }
     const t = setTimeout(async () => {
@@ -1981,14 +2011,20 @@ function ModuloHistorial() {
       try {
         const q = busqueda.toLowerCase();
         const ms = await sb.query("miembros",
-          `?or=(nombres.ilike.*${encodeURIComponent(q)}*,apellidos.ilike.*${encodeURIComponent(q)}*,cedula.ilike.*${encodeURIComponent(q)}*)&select=id,nombres,apellidos,foto_url,estado,templos(nombre),miembro_cargos(activo,cargos(nombre))&order=apellidos.asc&limit=8`
+          `?or=(nombres.ilike.*${encodeURIComponent(q)}*,apellidos.ilike.*${encodeURIComponent(q)}*,cedula.ilike.*${encodeURIComponent(q)}*)&select=id,nombres,apellidos,foto_url,estado,templos(nombre),miembro_cargos(activo,cargo_id,cargos(nombre)),miembro_grupos(activo,grupo_id,grupos(nombre))&order=apellidos.asc&limit=20`
         );
-        setSugerencias(ms);
+        // Aplicar filtro de cargo/grupo en memoria
+        const filtrados = ms.filter(m => {
+          const okCargo = !filtroCargoBusq || (m.miembro_cargos || []).some(mc => mc.activo && mc.cargo_id === filtroCargoBusq);
+          const okGrupo = !filtroGrupoBusq || (m.miembro_grupos || []).some(mg => mg.activo && mg.grupo_id === filtroGrupoBusq);
+          return okCargo && okGrupo;
+        }).slice(0, 8);
+        setSugerencias(filtrados);
       } catch {}
       finally { setBuscando(false); }
     }, 350);
     return () => clearTimeout(t);
-  }, [busqueda]);
+  }, [busqueda, filtroCargoBusq, filtroGrupoBusq]);
 
   const seleccionarMiembro = (m) => {
     setMiembroSel(m);
@@ -2088,8 +2124,26 @@ function ModuloHistorial() {
     <div>
       <SectionHeader title="Historial de asistencia individual" icon="user-search" role="warning" />
 
+      {/* Filtros de cargo y grupo */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, maxWidth: 640, marginBottom: 12 }}>
+        <div>
+          <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 6 }}>Filtrar por cargo</label>
+          <select value={filtroCargoBusq} onChange={e => setFiltroCargoBusq(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }}>
+            <option value="">Todos los cargos</option>
+            {cargosList.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 6 }}>Filtrar por grupo</label>
+          <select value={filtroGrupoBusq} onChange={e => setFiltroGrupoBusq(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }}>
+            <option value="">Todos los grupos</option>
+            {gruposList.map(g => <option key={g.id} value={g.id}>{g.nombre}</option>)}
+          </select>
+        </div>
+      </div>
+
       {/* Buscador de miembro */}
-      <div style={{ position: "relative", maxWidth: 480, marginBottom: 24 }} ref={dropRef}>
+      <div style={{ position: "relative", maxWidth: 640, marginBottom: 12 }} ref={dropRef}>
         <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 6 }}>
           Buscar miembro por nombre o cédula
         </label>
@@ -2097,7 +2151,7 @@ function ModuloHistorial() {
           <input
             value={busqueda}
             onChange={e => { setBusqueda(e.target.value); setMiembroSel(null); }}
-            placeholder="Escribe al menos 2 caracteres..."
+            placeholder={filtroCargoBusq || filtroGrupoBusq ? "Escribe para refinar, o elegí de la lista abajo..." : "Escribe al menos 2 caracteres..."}
             style={{ width: "100%", boxSizing: "border-box", paddingRight: 36 }}
           />
           <i className={`ti ti-${buscando ? "loader-2" : "search"}`} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)", fontSize: 16, pointerEvents: "none" }} />
@@ -2119,6 +2173,45 @@ function ModuloHistorial() {
           </div>
         )}
       </div>
+
+      {/* Lista de miembros filtrados por cargo/grupo (cuando no hay búsqueda activa) */}
+      {(filtroCargoBusq || filtroGrupoBusq) && busqueda.length < 2 && (
+        <div style={{ maxWidth: 640, marginBottom: 24, background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
+          <div style={{ padding: "10px 14px", borderBottom: "0.5px solid var(--border)", fontSize: 12, color: "var(--text-secondary)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>
+              <i className="ti ti-filter" style={{ marginRight: 6 }} />
+              <strong>{listaFiltrada.length}</strong> miembro(s) con el filtro aplicado — click para ver historial
+            </span>
+            <button onClick={() => { setFiltroCargoBusq(""); setFiltroGrupoBusq(""); }} style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--text-accent)", fontSize: 12, fontFamily: "var(--font-sans)" }}>
+              <i className="ti ti-x" /> Limpiar
+            </button>
+          </div>
+          {cargandoLista ? (
+            <div style={{ padding: 20, textAlign: "center", color: "var(--text-muted)" }}>
+              <i className="ti ti-loader-2" style={{ fontSize: 18 }} /> Cargando...
+            </div>
+          ) : listaFiltrada.length === 0 ? (
+            <div style={{ padding: 20, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
+              No se encontraron miembros con esos criterios
+            </div>
+          ) : (
+            <div style={{ maxHeight: 320, overflowY: "auto" }}>
+              {listaFiltrada.map(m => (
+                <button key={m.id} onClick={() => seleccionarMiembro(m)} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "10px 14px", border: "none", background: "transparent", cursor: "pointer", fontFamily: "var(--font-sans)", textAlign: "left", borderBottom: "0.5px solid var(--border)" }}
+                  onMouseEnter={e => e.currentTarget.style.background = "var(--surface-1)"}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  <Avatar foto={m.foto_url} nombre={`${m.nombres} ${m.apellidos}`} size={32} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>{m.apellidos}, {m.nombres}</div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{m.templos?.nombre || "Sin templo"}</div>
+                  </div>
+                  <Badge label={m.estado} />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Card del miembro seleccionado */}
       {miembroSel && (
