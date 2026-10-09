@@ -2307,11 +2307,25 @@ function ModuloEstadisticasTareas() {
   const [filtroDesde, setFiltroDesde] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split("T")[0]);
   const [filtroHasta, setFiltroHasta] = useState(today());
   const [filtroMiembro, setFiltroMiembro] = useState("");
+  const [filtroCargo, setFiltroCargo] = useState("");
+  const [filtroGrupo, setFiltroGrupo] = useState("");
   const [miembros, setMiembros] = useState([]);
+  const [miembrosFull, setMiembrosFull] = useState([]);
+  const [cargosList, setCargosList] = useState([]);
+  const [gruposList, setGruposList] = useState([]);
 
   useEffect(() => {
-    sb.query("miembros", "?select=id,nombres,apellidos&estado=neq.retirado&order=apellidos.asc")
-      .then(setMiembros).catch(() => {});
+    // Cargamos miembros completos (con sus cargos y grupos) para filtrar en memoria
+    Promise.all([
+      sb.query("miembros", "?select=id,nombres,apellidos,miembro_cargos(activo,cargo_id),miembro_grupos(activo,grupo_id)&estado=neq.retirado&order=apellidos.asc"),
+      sb.query("cargos", "?activo=eq.true&order=nombre&select=id,nombre").catch(() => []),
+      sb.query("grupos", "?activo=eq.true&order=nombre&select=id,nombre").catch(() => []),
+    ]).then(([ms, cs, gs]) => {
+      setMiembrosFull(ms || []);
+      setMiembros((ms || []).map(m => ({ id: m.id, nombres: m.nombres, apellidos: m.apellidos })));
+      setCargosList(cs || []);
+      setGruposList(gs || []);
+    }).catch(() => {});
   }, []);
 
   const COLORES_ESTADO = { pendiente: "#F59E0B", en_progreso: "#3B82F6", completada: "#10B981", cancelada: "#EF4444" };
@@ -2321,8 +2335,22 @@ function ModuloEstadisticasTareas() {
   const cargar = useCallback(async () => {
     setLoading(true);
     try {
+      // Si hay filtro por cargo o grupo, primero obtener IDs de miembros que cumplen
+      let miembrosFiltrados = null; // null = sin filtrar
+      if (filtroCargo || filtroGrupo) {
+        miembrosFiltrados = (miembrosFull || []).filter(m => {
+          const okCargo = !filtroCargo || (m.miembro_cargos || []).some(mc => mc.activo && mc.cargo_id === filtroCargo);
+          const okGrupo = !filtroGrupo || (m.miembro_grupos || []).some(mg => mg.activo && mg.grupo_id === filtroGrupo);
+          return okCargo && okGrupo;
+        }).map(m => m.id);
+        if (miembrosFiltrados.length === 0) {
+          setDatos(null); setLoading(false); return;
+        }
+      }
+
       let qT = `?fecha_vencimiento=gte.${filtroDesde}&fecha_vencimiento=lte.${filtroHasta}&select=*,miembros(id,nombres,apellidos)`;
       if (filtroMiembro) qT += `&miembro_id=eq.${filtroMiembro}`;
+      else if (miembrosFiltrados) qT += `&miembro_id=in.(${miembrosFiltrados.join(",")})`;
       const tareas = await sb.query("tareas", qT);
 
       if (!tareas.length) { setDatos(null); setLoading(false); return; }
@@ -2394,9 +2422,10 @@ function ModuloEstadisticasTareas() {
       setDatos({ tareas, porEstado, porPrioridad, pieEstado, piePrioridad, lineData, rankingAsignadas, rankingCompletadas, vencidas, sinFecha, tiempoPromedio, total: tareas.length });
     } catch (e) { toast(e.message, "error"); }
     finally { setLoading(false); }
-  }, [filtroDesde, filtroHasta, filtroMiembro]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtroDesde, filtroHasta, filtroMiembro, filtroCargo, filtroGrupo, miembrosFull]);
 
-  useEffect(() => { cargar(); }, []);
+  useEffect(() => { cargar(); }, [cargar]);
 
   return (
     <div>
@@ -2412,6 +2441,20 @@ function ModuloEstadisticasTareas() {
           <label style={{ display: "block", fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>Vence hasta</label>
           <input type="date" value={filtroHasta} onChange={e => setFiltroHasta(e.target.value)} style={{ boxSizing: "border-box" }} />
         </div>
+        <div style={{ minWidth: 180 }}>
+          <label style={{ display: "block", fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>Cargo</label>
+          <select value={filtroCargo} onChange={e => setFiltroCargo(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }}>
+            <option value="">Todos los cargos</option>
+            {cargosList.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </select>
+        </div>
+        <div style={{ minWidth: 180 }}>
+          <label style={{ display: "block", fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>Grupo</label>
+          <select value={filtroGrupo} onChange={e => setFiltroGrupo(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }}>
+            <option value="">Todos los grupos</option>
+            {gruposList.map(g => <option key={g.id} value={g.id}>{g.nombre}</option>)}
+          </select>
+        </div>
         <div style={{ minWidth: 200 }}>
           <label style={{ display: "block", fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>Miembro</label>
           <select value={filtroMiembro} onChange={e => setFiltroMiembro(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }}>
@@ -2420,7 +2463,9 @@ function ModuloEstadisticasTareas() {
           </select>
         </div>
         <Btn icon="refresh" variant="primary" small onClick={cargar} loading={loading}>Actualizar</Btn>
-        {filtroMiembro && <Btn icon="x" small onClick={() => setFiltroMiembro("")}>Limpiar</Btn>}
+        {(filtroMiembro || filtroCargo || filtroGrupo) && (
+          <Btn icon="x" small onClick={() => { setFiltroMiembro(""); setFiltroCargo(""); setFiltroGrupo(""); }}>Limpiar filtros</Btn>
+        )}
       </div>
 
       {loading ? <Spinner /> : !datos ? (
