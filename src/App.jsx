@@ -3286,6 +3286,21 @@ function ModuloDiagramacion() {
 
   const [elegibles, setElegibles] = useState([]);
   const [todosMiembros, setTodosMiembros] = useState([]);
+  const [cargosDisponibles, setCargosDisponibles] = useState([]);
+  const [gruposDisponibles, setGruposDisponibles] = useState([]);
+  const [cargosSel, setCargosSel] = useState(() => {
+    try {
+      const saved = localStorage.getItem("diagramacion_cargos_sel");
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
+  });
+  const [gruposSel, setGruposSel] = useState(() => {
+    try {
+      const saved = localStorage.getItem("diagramacion_grupos_sel");
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
+  });
+  const [verFiltros, setVerFiltros] = useState(false);
   const [diagramaciones, setDiagramaciones] = useState([]);
   const [loading, setLoading] = useState(true);
   const [generando, setGenerando] = useState(false);
@@ -3323,31 +3338,52 @@ function ModuloDiagramacion() {
   // Meses actualmente visibles según el modo
   const mesesVisibles = modo === "mes" ? [mesActivo] : mesesEnPeriodo(mesDesde, mesHasta);
 
-  // Carga miembros elegibles y diagramaciones del/los mes(es) activo(s)
+  // Carga miembros elegibles, diagramaciones y las tablas de cargos/grupos disponibles
   const cargar = useCallback(async () => {
     setLoading(true);
     try {
       const meses = modo === "mes" ? [mesActivo] : mesesEnPeriodo(mesDesde, mesHasta);
       const filtroMes = meses.length === 1 ? `?mes=eq.${meses[0]}` : `?mes=in.(${meses.join(",")})`;
 
-      const [ms, diag] = await Promise.all([
-        sb.query("miembros", "?estado=eq.activo&select=id,nombres,apellidos,miembro_cargos(activo,cargos(nombre)),miembro_grupos(activo,grupos(nombre))&order=apellidos.asc"),
+      const [ms, diag, cargosAll, gruposAll] = await Promise.all([
+        sb.query("miembros", "?estado=eq.activo&select=id,nombres,apellidos,miembro_cargos(activo,cargo_id,cargos(id,nombre)),miembro_grupos(activo,grupo_id,grupos(id,nombre))&order=apellidos.asc"),
         sb.query("diagramacion_dominical", `${filtroMes}&select=*&order=fecha.asc`).catch(() => []),
+        sb.query("cargos", "?activo=eq.true&order=nombre&select=id,nombre").catch(() => []),
+        sb.query("grupos", "?activo=eq.true&order=nombre&select=id,nombre").catch(() => []),
       ]);
 
+      setCargosDisponibles(cargosAll || []);
+      setGruposDisponibles(gruposAll || []);
+
+      // Resolver selección por defecto si todavía es null (primera vez)
+      // Default: cargos que contengan "ministerio" + grupos que contengan "oficial" o "ayudante"
+      let cSel = cargosSel;
+      let gSel = gruposSel;
+      if (cSel === null) {
+        cSel = (cargosAll || []).filter(c => c.nombre.toLowerCase().includes("ministerio")).map(c => c.id);
+        setCargosSel(cSel);
+        try { localStorage.setItem("diagramacion_cargos_sel", JSON.stringify(cSel)); } catch {}
+      }
+      if (gSel === null) {
+        gSel = (gruposAll || []).filter(g => {
+          const n = g.nombre.toLowerCase();
+          return n.includes("oficial") || n.includes("ayudante");
+        }).map(g => g.id);
+        setGruposSel(gSel);
+        try { localStorage.setItem("diagramacion_grupos_sel", JSON.stringify(gSel)); } catch {}
+      }
+
+      const cSetId = new Set(cSel);
+      const gSetId = new Set(gSel);
+
       const filtrados = ms.map(m => {
-        const cargosMinisterio = (m.miembro_cargos || [])
-          .filter(mc => mc.activo && mc.cargos?.nombre?.toLowerCase().includes("ministerio"))
-          .map(mc => mc.cargos.nombre);
-        // Match flexible: acepta "Oficial", "Oficiales", "Ayudante", "Ayudantes" (singular/plural, mayúscula/minúscula)
-        const gruposOficialAyudante = (m.miembro_grupos || [])
-          .filter(mg => {
-            if (!mg.activo) return false;
-            const nombre = (mg.grupos?.nombre || "").toLowerCase().trim();
-            return nombre.includes("oficial") || nombre.includes("ayudante");
-          })
-          .map(mg => mg.grupos.nombre);
-        return { ...m, _cargosMatch: cargosMinisterio, _gruposMatch: gruposOficialAyudante };
+        const cargosMatch = (m.miembro_cargos || [])
+          .filter(mc => mc.activo && cSetId.has(mc.cargo_id))
+          .map(mc => mc.cargos?.nombre).filter(Boolean);
+        const gruposMatch = (m.miembro_grupos || [])
+          .filter(mg => mg.activo && gSetId.has(mg.grupo_id))
+          .map(mg => mg.grupos?.nombre).filter(Boolean);
+        return { ...m, _cargosMatch: cargosMatch, _gruposMatch: gruposMatch };
       }).filter(m => m._cargosMatch.length > 0 && m._gruposMatch.length > 0);
 
       setElegibles(filtrados);
@@ -3363,9 +3399,41 @@ function ModuloDiagramacion() {
     } finally {
       setLoading(false);
     }
-  }, [modo, mesActivo, mesDesde, mesHasta, toast]);
+  }, [modo, mesActivo, mesDesde, mesHasta, cargosSel, gruposSel, toast]);
 
   useEffect(() => { cargar(); }, [cargar]);
+
+  // Toggle de selección de cargo/grupo con persistencia en localStorage
+  const toggleCargo = (id) => {
+    const sel = cargosSel || [];
+    const nuevo = sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id];
+    setCargosSel(nuevo);
+    try { localStorage.setItem("diagramacion_cargos_sel", JSON.stringify(nuevo)); } catch {}
+  };
+  const toggleGrupo = (id) => {
+    const sel = gruposSel || [];
+    const nuevo = sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id];
+    setGruposSel(nuevo);
+    try { localStorage.setItem("diagramacion_grupos_sel", JSON.stringify(nuevo)); } catch {}
+  };
+  const seleccionarTodosCargos = () => {
+    const ids = cargosDisponibles.map(c => c.id);
+    setCargosSel(ids);
+    try { localStorage.setItem("diagramacion_cargos_sel", JSON.stringify(ids)); } catch {}
+  };
+  const limpiarCargos = () => {
+    setCargosSel([]);
+    try { localStorage.setItem("diagramacion_cargos_sel", JSON.stringify([])); } catch {}
+  };
+  const seleccionarTodosGrupos = () => {
+    const ids = gruposDisponibles.map(g => g.id);
+    setGruposSel(ids);
+    try { localStorage.setItem("diagramacion_grupos_sel", JSON.stringify(ids)); } catch {}
+  };
+  const limpiarGrupos = () => {
+    setGruposSel([]);
+    try { localStorage.setItem("diagramacion_grupos_sel", JSON.stringify([])); } catch {}
+  };
 
   // Devuelve los domingos de un mes dado "YYYY-MM"
   const domingosDelMes = (yearMonth) => {
@@ -3695,31 +3763,101 @@ function ModuloDiagramacion() {
       {/* Info de criterios */}
       <div style={{ background: "var(--bg-accent)", border: "0.5px solid var(--border-accent)", borderRadius: 10, padding: "10px 14px", marginBottom: 20, fontSize: 12, color: "var(--text-accent)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <div>
+          <div style={{ flex: 1, minWidth: 240 }}>
             <i className="ti ti-info-circle" style={{ marginRight: 6 }} />
-            Criterios: miembros con cargo que contenga <strong>"Ministerio"</strong> + grupo <strong>"Oficial"</strong> o <strong>"Ayudante"</strong>.
-            Las tareas <strong>no se repiten</strong> al mismo miembro en todo el {modo === "mes" ? "mes" : "período"} seleccionado.
+            <strong>Filtros activos:</strong>{" "}
+            <span>
+              Cargos: {cargosSel && cargosSel.length > 0
+                ? cargosDisponibles.filter(c => cargosSel.includes(c.id)).map(c => c.nombre).join(", ") || "(ninguno)"
+                : "(ninguno)"}
+            </span>
+            {" · "}
+            <span>
+              Grupos: {gruposSel && gruposSel.length > 0
+                ? gruposDisponibles.filter(g => gruposSel.includes(g.id)).map(g => g.nombre).join(", ") || "(ninguno)"
+                : "(ninguno)"}
+            </span>
+            <div style={{ marginTop: 4, fontSize: 11 }}>
+              Las tareas <strong>no se repiten</strong> al mismo miembro en todo el {modo === "mes" ? "mes" : "período"} seleccionado.
+            </div>
           </div>
-          {elegibles.length > 0 && (
-            <button onClick={() => setVerElegibles(v => !v)} style={{
-              background: "transparent",
-              border: "0.5px solid var(--border-accent)",
-              color: "var(--text-accent)",
-              borderRadius: 6,
-              padding: "4px 10px",
-              fontSize: 12,
-              cursor: "pointer",
-              fontFamily: "var(--font-sans)",
-              display: "flex",
-              alignItems: "center",
-              gap: 4,
-              whiteSpace: "nowrap",
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <button onClick={() => setVerFiltros(v => !v)} style={{
+              background: "var(--fill-accent)", border: "none", color: "var(--on-accent)",
+              borderRadius: 6, padding: "4px 10px", fontSize: 12, cursor: "pointer",
+              fontFamily: "var(--font-sans)", display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap",
             }}>
-              <i className={`ti ti-chevron-${verElegibles ? "up" : "down"}`} />
-              {verElegibles ? "Ocultar" : "Ver"} {elegibles.length} miembros elegibles
+              <i className="ti ti-filter" />
+              {verFiltros ? "Ocultar filtros" : "Editar filtros"}
             </button>
-          )}
+            {elegibles.length > 0 && (
+              <button onClick={() => setVerElegibles(v => !v)} style={{
+                background: "transparent", border: "0.5px solid var(--border-accent)",
+                color: "var(--text-accent)", borderRadius: 6, padding: "4px 10px",
+                fontSize: 12, cursor: "pointer", fontFamily: "var(--font-sans)",
+                display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap",
+              }}>
+                <i className={`ti ti-chevron-${verElegibles ? "up" : "down"}`} />
+                {verElegibles ? "Ocultar" : "Ver"} {elegibles.length} elegibles
+              </button>
+            )}
+          </div>
         </div>
+
+        {/* Panel editable de filtros */}
+        {verFiltros && (
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: "0.5px solid var(--border-accent)" }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
+              {/* Cargos */}
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: "var(--text-primary)" }}>
+                    CARGOS ({(cargosSel || []).length} / {cargosDisponibles.length})
+                  </div>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <button onClick={seleccionarTodosCargos} style={{ fontSize: 10, padding: "2px 6px", background: "transparent", border: "0.5px solid var(--border-strong)", borderRadius: 4, cursor: "pointer", color: "var(--text-primary)", fontFamily: "var(--font-sans)" }}>Todos</button>
+                    <button onClick={limpiarCargos} style={{ fontSize: 10, padding: "2px 6px", background: "transparent", border: "0.5px solid var(--border-strong)", borderRadius: 4, cursor: "pointer", color: "var(--text-primary)", fontFamily: "var(--font-sans)" }}>Ninguno</button>
+                  </div>
+                </div>
+                <div style={{ maxHeight: 200, overflowY: "auto", background: "var(--surface-2)", borderRadius: 6, padding: 8, border: "0.5px solid var(--border)" }}>
+                  {cargosDisponibles.length === 0 ? (
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", textAlign: "center", padding: 10 }}>No hay cargos definidos</div>
+                  ) : cargosDisponibles.map(c => (
+                    <label key={c.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 4px", fontSize: 12, cursor: "pointer", color: "var(--text-primary)", borderRadius: 4 }}>
+                      <input type="checkbox" checked={(cargosSel || []).includes(c.id)} onChange={() => toggleCargo(c.id)} style={{ width: 14, height: 14, cursor: "pointer" }} />
+                      {c.nombre}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              {/* Grupos */}
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: "var(--text-primary)" }}>
+                    GRUPOS ({(gruposSel || []).length} / {gruposDisponibles.length})
+                  </div>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <button onClick={seleccionarTodosGrupos} style={{ fontSize: 10, padding: "2px 6px", background: "transparent", border: "0.5px solid var(--border-strong)", borderRadius: 4, cursor: "pointer", color: "var(--text-primary)", fontFamily: "var(--font-sans)" }}>Todos</button>
+                    <button onClick={limpiarGrupos} style={{ fontSize: 10, padding: "2px 6px", background: "transparent", border: "0.5px solid var(--border-strong)", borderRadius: 4, cursor: "pointer", color: "var(--text-primary)", fontFamily: "var(--font-sans)" }}>Ninguno</button>
+                  </div>
+                </div>
+                <div style={{ maxHeight: 200, overflowY: "auto", background: "var(--surface-2)", borderRadius: 6, padding: 8, border: "0.5px solid var(--border)" }}>
+                  {gruposDisponibles.length === 0 ? (
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", textAlign: "center", padding: 10 }}>No hay grupos definidos</div>
+                  ) : gruposDisponibles.map(g => (
+                    <label key={g.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 4px", fontSize: 12, cursor: "pointer", color: "var(--text-primary)", borderRadius: 4 }}>
+                      <input type="checkbox" checked={(gruposSel || []).includes(g.id)} onChange={() => toggleGrupo(g.id)} style={{ width: 14, height: 14, cursor: "pointer" }} />
+                      {g.nombre}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div style={{ marginTop: 10, fontSize: 11, color: "var(--text-muted)", fontStyle: "italic" }}>
+              💡 Un miembro es elegible si tiene <strong>al menos uno</strong> de los cargos seleccionados <strong>Y</strong> <strong>al menos uno</strong> de los grupos seleccionados. Tu selección se guarda automáticamente.
+            </div>
+          </div>
+        )}
 
         {/* Lista expandible de elegibles con cargos y grupos */}
         {verElegibles && elegibles.length > 0 && (
