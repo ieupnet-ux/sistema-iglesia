@@ -380,6 +380,7 @@ const NAV_ITEMS = [
   { id: "historial", icon: "user-search", label: "Historial", perm: "reportes", role: "warning" },
   { id: "tareas", icon: "checklist", label: "Tareas", perm: "reportes", role: "danger" },
   { id: "estadisticas_tareas", icon: "chart-dots-3", label: "Estadísticas", perm: "reportes", role: "pro" },
+  { id: "diagramacion", icon: "calendar-stats", label: "Diagramación", perm: "asistencia", role: "success" },
   { id: "visitas", icon: "mail", label: "Visitas", perm: "config", role: "warning" },
   { id: "legajos", icon: "folder-open", label: "Legajos", perm: "config", role: "pro" },
   { id: "reportes", icon: "chart-bar", label: "Reportes", perm: "reportes", role: "danger" },
@@ -3272,6 +3273,362 @@ function ModalTarea({ mode, data, miembros, usuario, ESTADOS, PRIORIDADES, onClo
 }
 
 // ─────────────────────────────────────────────────────────────
+// MÓDULO DIAGRAMACIÓN DOMINICAL AUTOMÁTICA
+// Asigna tareas rotativas a oficiales/ayudantes del Ministerio
+// evitando repetir tareas al mismo miembro en el mismo mes
+// ─────────────────────────────────────────────────────────────
+const TAREAS_DOMINICALES = ["Coordina", "Ora x Niños", "Ora x Enfermos", "Devocional", "Predica"];
+
+function ModuloDiagramacion() {
+  const { usuario, toast } = useApp();
+  const isMobile = useIsMobile();
+  const canEdit = canDo(usuario, "asistencia");
+
+  const [elegibles, setElegibles] = useState([]);
+  const [diagramaciones, setDiagramaciones] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [generando, setGenerando] = useState(false);
+  const [mesActivo, setMesActivo] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+
+  // Carga miembros elegibles: con cargo "Ministerio" Y grupo "Oficial" o "Ayudante"
+  const cargar = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [ms, diag] = await Promise.all([
+        sb.query("miembros", "?estado=eq.activo&select=id,nombres,apellidos,miembro_cargos(activo,cargos(nombre)),miembro_grupos(activo,grupos(nombre))&order=apellidos.asc"),
+        sb.query("diagramacion_dominical", `?mes=eq.${mesActivo}&select=*&order=fecha.asc`).catch(() => []),
+      ]);
+
+      const filtrados = ms.filter(m => {
+        const tieneMinisterio = (m.miembro_cargos || []).some(mc => mc.activo && mc.cargos?.nombre?.toLowerCase().includes("ministerio"));
+        const esOficialOAyudante = (m.miembro_grupos || []).some(mg => mg.activo && ["oficial", "ayudante"].includes((mg.grupos?.nombre || "").toLowerCase()));
+        return tieneMinisterio && esOficialOAyudante;
+      });
+
+      setElegibles(filtrados);
+      setDiagramaciones(diag || []);
+    } catch (e) {
+      toast(e.message, "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [mesActivo, toast]);
+
+  useEffect(() => { cargar(); }, [cargar]);
+
+  // Devuelve los domingos de un mes dado "YYYY-MM"
+  const domingosDelMes = (yearMonth) => {
+    const [y, m] = yearMonth.split("-").map(Number);
+    const domingos = [];
+    const dias = new Date(y, m, 0).getDate();
+    for (let d = 1; d <= dias; d++) {
+      const fecha = new Date(y, m - 1, d);
+      if (fecha.getDay() === 0) {
+        domingos.push(`${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`);
+      }
+    }
+    return domingos;
+  };
+
+  // Algoritmo de asignación: evita que un miembro repita tarea en el mismo mes
+  const generarDiagramacion = async () => {
+    if (elegibles.length === 0) {
+      toast("No hay miembros elegibles (requiere cargo 'Ministerio' + grupo 'Oficial' o 'Ayudante')", "warn");
+      return;
+    }
+    if (!window.confirm(`¿Generar diagramación para ${mesActivo}? Esto reemplazará la actual si existe.`)) return;
+
+    setGenerando(true);
+    try {
+      // Borrar diagramación existente del mes
+      if (diagramaciones.length > 0) {
+        for (const d of diagramaciones) {
+          await sb.delete("diagramacion_dominical", d.id);
+        }
+      }
+
+      const domingos = domingosDelMes(mesActivo);
+      const asignaciones = [];
+      // Historial: miembro_id -> Set de tareas ya asignadas este mes
+      const historialMes = {};
+      elegibles.forEach(m => { historialMes[m.id] = new Set(); });
+
+      // Para cada domingo, para cada tarea, elegir el miembro que:
+      //   1. No haya hecho esa tarea este mes
+      //   2. Tenga menos tareas asignadas en el mes (equilibrio)
+      //   3. No tenga otra tarea ese mismo domingo
+      for (const fecha of domingos) {
+        const ocupadosHoy = new Set();
+        for (const tarea of TAREAS_DOMINICALES) {
+          const candidatos = elegibles.filter(m => !historialMes[m.id].has(tarea) && !ocupadosHoy.has(m.id));
+          if (candidatos.length === 0) {
+            // Si todos ya hicieron la tarea, elegir uno libre ese domingo
+            const libres = elegibles.filter(m => !ocupadosHoy.has(m.id));
+            if (libres.length === 0) continue;
+            // Elegir con menos carga total
+            libres.sort((a, b) => historialMes[a.id].size - historialMes[b.id].size);
+            const elegido = libres[0];
+            asignaciones.push({ mes: mesActivo, fecha, tarea, miembro_id: elegido.id });
+            historialMes[elegido.id].add(tarea);
+            ocupadosHoy.add(elegido.id);
+          } else {
+            // Ordenar candidatos por menor carga en el mes
+            candidatos.sort((a, b) => historialMes[a.id].size - historialMes[b.id].size);
+            const elegido = candidatos[0];
+            asignaciones.push({ mes: mesActivo, fecha, tarea, miembro_id: elegido.id });
+            historialMes[elegido.id].add(tarea);
+            ocupadosHoy.add(elegido.id);
+          }
+        }
+      }
+
+      if (asignaciones.length > 0) {
+        await sb.insert("diagramacion_dominical", asignaciones);
+      }
+      toast(`Diagramación generada: ${asignaciones.length} asignaciones en ${domingos.length} domingos ✓`, "ok");
+      cargar();
+    } catch (e) {
+      toast("Error: " + e.message, "error");
+    } finally {
+      setGenerando(false);
+    }
+  };
+
+  const limpiarMes = async () => {
+    if (!window.confirm(`¿Eliminar toda la diagramación de ${mesActivo}?`)) return;
+    try {
+      for (const d of diagramaciones) {
+        await sb.delete("diagramacion_dominical", d.id);
+      }
+      toast("Diagramación eliminada", "ok");
+      cargar();
+    } catch (e) { toast(e.message, "error"); }
+  };
+
+  const cambiarAsignacion = async (asignacion, nuevoMiembroId) => {
+    try {
+      await sb.update("diagramacion_dominical", asignacion.id, { miembro_id: nuevoMiembroId });
+      toast("Asignación actualizada ✓", "ok");
+      cargar();
+    } catch (e) { toast(e.message, "error"); }
+  };
+
+  const exportarPDF = async () => {
+    try {
+      if (!window.jspdf) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement("script");
+          s.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+          s.onload = resolve; s.onerror = reject;
+          document.head.appendChild(s);
+        });
+      }
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      const [y, m] = mesActivo.split("-").map(Number);
+      const nombreMes = new Date(y, m - 1, 1).toLocaleDateString("es-ES", { month: "long", year: "numeric" });
+
+      doc.setFontSize(16); doc.setFont("helvetica", "bold");
+      doc.setTextColor(30, 45, 90);
+      doc.text("Diagramación Dominical — " + nombreMes.charAt(0).toUpperCase() + nombreMes.slice(1), 148, 15, { align: "center" });
+
+      doc.setDrawColor(30, 45, 90); doc.setLineWidth(0.5);
+      doc.line(15, 20, 282, 20);
+
+      const domingos = domingosDelMes(mesActivo);
+      let yPos = 30;
+
+      // Encabezado tabla
+      doc.setFontSize(9); doc.setFont("helvetica", "bold");
+      doc.setFillColor(240, 240, 245);
+      doc.rect(15, yPos, 267, 8, "F");
+      doc.setTextColor(30, 30, 30);
+      doc.text("Domingo", 18, yPos + 5);
+      const colWidth = 50;
+      TAREAS_DOMINICALES.forEach((t, i) => {
+        doc.text(t, 45 + i * colWidth, yPos + 5);
+      });
+      yPos += 8;
+
+      doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+      domingos.forEach((fecha, idx) => {
+        if (idx % 2 === 0) {
+          doc.setFillColor(250, 250, 252);
+          doc.rect(15, yPos, 267, 10, "F");
+        }
+        const [, mm, dd] = fecha.split("-");
+        doc.setFont("helvetica", "bold"); doc.setTextColor(30, 45, 90);
+        doc.text(`${dd}/${mm}`, 18, yPos + 6);
+        doc.setFont("helvetica", "normal"); doc.setTextColor(40, 40, 40);
+        TAREAS_DOMINICALES.forEach((tarea, i) => {
+          const asig = diagramaciones.find(d => d.fecha === fecha && d.tarea === tarea);
+          const miembro = asig ? elegibles.find(m => m.id === asig.miembro_id) : null;
+          const nombre = miembro ? `${miembro.nombres} ${miembro.apellidos}` : "—";
+          const texto = nombre.length > 22 ? nombre.substring(0, 20) + "..." : nombre;
+          doc.text(texto, 45 + i * colWidth, yPos + 6);
+        });
+        yPos += 10;
+      });
+
+      doc.setFontSize(8); doc.setTextColor(120, 120, 120);
+      doc.text(`Generado: ${new Date().toLocaleDateString("es-ES")}`, 148, 200, { align: "center" });
+
+      doc.save(`Diagramacion_${mesActivo}.pdf`);
+      toast("PDF generado ✓", "ok");
+    } catch (e) {
+      toast("Error al generar PDF: " + e.message, "error");
+    }
+  };
+
+  const domingos = domingosDelMes(mesActivo);
+  const nombreMes = (() => {
+    const [y, m] = mesActivo.split("-").map(Number);
+    return new Date(y, m - 1, 1).toLocaleDateString("es-ES", { month: "long", year: "numeric" });
+  })();
+
+  // Resumen por miembro: cuántas veces aparece en el mes
+  const resumenPorMiembro = elegibles.map(m => {
+    const asignaciones = diagramaciones.filter(d => d.miembro_id === m.id);
+    const tareas = asignaciones.map(a => a.tarea);
+    return { miembro: m, total: asignaciones.length, tareas };
+  }).sort((a, b) => b.total - a.total);
+
+  return (
+    <div>
+      <SectionHeader
+        title="Diagramación dominical"
+        icon="calendar-stats"
+        role="success"
+        action={
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {diagramaciones.length > 0 && (
+              <Btn icon="file-type-pdf" small variant="warning" onClick={exportarPDF}>
+                {isMobile ? "" : "Exportar PDF"}
+              </Btn>
+            )}
+            {canEdit && diagramaciones.length > 0 && (
+              <Btn icon="trash" small variant="danger" onClick={limpiarMes}>
+                {isMobile ? "" : "Limpiar mes"}
+              </Btn>
+            )}
+            {canEdit && (
+              <Btn icon="wand" small variant="primary" loading={generando} onClick={generarDiagramacion}>
+                {isMobile ? "Generar" : "Generar automáticamente"}
+              </Btn>
+            )}
+          </div>
+        }
+      />
+
+      {/* Selector de mes */}
+      <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 16, marginBottom: 20 }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <div>
+            <label style={{ display: "block", fontSize: 13, color: "var(--text-secondary)", marginBottom: 4 }}>Mes a diagramar</label>
+            <input type="month" value={mesActivo} onChange={e => setMesActivo(e.target.value)} style={{ padding: "6px 10px", borderRadius: 8, border: "0.5px solid var(--border)", background: "var(--surface-1)", color: "var(--text-primary)", fontFamily: "var(--font-sans)" }} />
+          </div>
+          <div style={{ fontSize: 13, color: "var(--text-muted)", textTransform: "capitalize" }}>
+            <strong style={{ color: "var(--text-primary)" }}>{nombreMes}</strong>
+            {" · "}{domingos.length} domingo(s)
+            {" · "}{elegibles.length} miembro(s) elegible(s)
+          </div>
+        </div>
+      </div>
+
+      {/* Info de criterios */}
+      <div style={{ background: "var(--bg-accent)", border: "0.5px solid var(--border-accent)", borderRadius: 10, padding: "10px 14px", marginBottom: 20, fontSize: 12, color: "var(--text-accent)" }}>
+        <i className="ti ti-info-circle" style={{ marginRight: 6 }} />
+        Criterios: miembros con cargo <strong>"Ministerio"</strong> + grupo <strong>"Oficial"</strong> o <strong>"Ayudante"</strong>. Las tareas no se repiten al mismo miembro en el mismo mes.
+      </div>
+
+      {loading ? <Spinner /> : elegibles.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 0", color: "var(--text-muted)" }}>
+          <i className="ti ti-users-off" style={{ fontSize: 40, display: "block", marginBottom: 10 }} />
+          No hay miembros elegibles. Asegurate de que los miembros tengan el cargo "Ministerio" y el grupo "Oficial" o "Ayudante".
+        </div>
+      ) : (
+        <>
+          {/* Tabla de diagramación */}
+          <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, overflow: "hidden", marginBottom: 20, overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
+              <thead>
+                <tr style={{ background: "var(--surface-1)" }}>
+                  <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--text-secondary)", textAlign: "left", borderBottom: "0.5px solid var(--border)", width: 100 }}>Domingo</th>
+                  {TAREAS_DOMINICALES.map(t => (
+                    <th key={t} style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--text-secondary)", textAlign: "left", borderBottom: "0.5px solid var(--border)" }}>{t}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {domingos.length === 0 ? (
+                  <tr><td colSpan={6} style={{ padding: 20, textAlign: "center", color: "var(--text-muted)" }}>No hay domingos en el mes seleccionado</td></tr>
+                ) : domingos.map(fecha => {
+                  const [, mm, dd] = fecha.split("-");
+                  return (
+                    <tr key={fecha} style={{ borderBottom: "0.5px solid var(--border)" }}>
+                      <td style={{ padding: "10px 12px", fontSize: 13, fontWeight: 500, color: "var(--text-success)" }}>
+                        {dd}/{mm}
+                      </td>
+                      {TAREAS_DOMINICALES.map(tarea => {
+                        const asig = diagramaciones.find(d => d.fecha === fecha && d.tarea === tarea);
+                        const miembro = asig ? elegibles.find(m => m.id === asig.miembro_id) : null;
+                        return (
+                          <td key={tarea} style={{ padding: "8px 12px", fontSize: 13 }}>
+                            {canEdit && asig ? (
+                              <select value={asig.miembro_id} onChange={e => cambiarAsignacion(asig, e.target.value)} style={{ fontSize: 12, padding: "4px 8px", width: "100%", maxWidth: 180 }}>
+                                {elegibles.map(m => (
+                                  <option key={m.id} value={m.id}>{m.apellidos}, {m.nombres}</option>
+                                ))}
+                              </select>
+                            ) : miembro ? (
+                              <span>{miembro.apellidos}, {miembro.nombres}</span>
+                            ) : (
+                              <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>Sin asignar</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Resumen por miembro */}
+          {diagramaciones.length > 0 && (
+            <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+                <i className="ti ti-chart-bar" style={{ fontSize: 18, color: "var(--text-pro)" }} />
+                Resumen por miembro — {nombreMes}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(280px, 1fr))", gap: 10 }}>
+                {resumenPorMiembro.map(({ miembro, total, tareas }) => (
+                  <div key={miembro.id} style={{ padding: "10px 12px", background: "var(--surface-1)", borderRadius: 8, borderLeft: `3px solid ${total === 0 ? "var(--border-muted)" : "var(--border-success)"}` }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                      <span style={{ fontSize: 13, fontWeight: 500 }}>{miembro.apellidos}, {miembro.nombres}</span>
+                      <Badge label={`${total} tarea(s)`} role={total === 0 ? "accent" : "success"} />
+                    </div>
+                    {tareas.length > 0 && (
+                      <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                        {tareas.join(" · ")}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // MÓDULO VISITAS (Cartas de presentación y recomendación)
 // ─────────────────────────────────────────────────────────────
 function ModuloVisitas() {
@@ -4716,7 +5073,7 @@ export default function App() {
     </AppCtx.Provider>
   );
 
-  const PAGES = { dashboard: Dashboard, miembros: ModuloMiembros, asistencia: ModuloAsistencia, historial: ModuloHistorial, tareas: ModuloTareas, estadisticas_tareas: ModuloEstadisticasTareas, visitas: ModuloVisitas, legajos: ModuloLegajos, reportes: ModuloReportes, config: ModuloConfig };
+  const PAGES = { dashboard: Dashboard, miembros: ModuloMiembros, asistencia: ModuloAsistencia, historial: ModuloHistorial, tareas: ModuloTareas, estadisticas_tareas: ModuloEstadisticasTareas, diagramacion: ModuloDiagramacion, visitas: ModuloVisitas, legajos: ModuloLegajos, reportes: ModuloReportes, config: ModuloConfig };
   const PageComp = PAGES[page] || Dashboard;
   const currentNav = NAV_ITEMS.find(n => n.id === page);
 
