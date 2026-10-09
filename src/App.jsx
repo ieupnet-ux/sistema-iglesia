@@ -3285,10 +3285,12 @@ function ModuloDiagramacion() {
   const canEdit = canDo(usuario, "asistencia");
 
   const [elegibles, setElegibles] = useState([]);
+  const [todosMiembros, setTodosMiembros] = useState([]);
   const [diagramaciones, setDiagramaciones] = useState([]);
   const [loading, setLoading] = useState(true);
   const [generando, setGenerando] = useState(false);
   const [verElegibles, setVerElegibles] = useState(false);
+  const [verDebug, setVerDebug] = useState(false);
   const [modo, setModo] = useState("mes"); // "mes" | "periodo"
   const [mesActivo, setMesActivo] = useState(() => {
     const d = new Date();
@@ -3337,13 +3339,24 @@ function ModuloDiagramacion() {
         const cargosMinisterio = (m.miembro_cargos || [])
           .filter(mc => mc.activo && mc.cargos?.nombre?.toLowerCase().includes("ministerio"))
           .map(mc => mc.cargos.nombre);
+        // Match flexible: acepta "Oficial", "Oficiales", "Ayudante", "Ayudantes" (singular/plural, mayúscula/minúscula)
         const gruposOficialAyudante = (m.miembro_grupos || [])
-          .filter(mg => mg.activo && ["oficial", "ayudante"].includes((mg.grupos?.nombre || "").toLowerCase()))
+          .filter(mg => {
+            if (!mg.activo) return false;
+            const nombre = (mg.grupos?.nombre || "").toLowerCase().trim();
+            return nombre.includes("oficial") || nombre.includes("ayudante");
+          })
           .map(mg => mg.grupos.nombre);
         return { ...m, _cargosMatch: cargosMinisterio, _gruposMatch: gruposOficialAyudante };
       }).filter(m => m._cargosMatch.length > 0 && m._gruposMatch.length > 0);
 
       setElegibles(filtrados);
+      // Guardo todos los miembros activos (con sus cargos+grupos) para el panel de debug
+      setTodosMiembros(ms.map(m => ({
+        ...m,
+        _todosCargos: (m.miembro_cargos || []).filter(mc => mc.activo).map(mc => mc.cargos?.nombre).filter(Boolean),
+        _todosGrupos: (m.miembro_grupos || []).filter(mg => mg.activo).map(mg => mg.grupos?.nombre).filter(Boolean),
+      })));
       setDiagramaciones(diag || []);
     } catch (e) {
       toast(e.message, "error");
@@ -3730,6 +3743,107 @@ function ModuloDiagramacion() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* Panel de debug: todos los miembros activos con sus cargos y grupos */}
+      <div style={{ background: "var(--surface-1)", border: "0.5px solid var(--border)", borderRadius: 10, padding: "10px 14px", marginBottom: 20, fontSize: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+          <div style={{ color: "var(--text-secondary)" }}>
+            <i className="ti ti-bug" style={{ marginRight: 6 }} />
+            <strong>Diagnóstico:</strong> Si no aparecen los oficiales, revisá acá qué cargos y grupos tienen asignados tus miembros.
+          </div>
+          <button onClick={() => setVerDebug(v => !v)} style={{
+            background: "transparent",
+            border: "0.5px solid var(--border-strong)",
+            color: "var(--text-primary)",
+            borderRadius: 6,
+            padding: "4px 10px",
+            fontSize: 12,
+            cursor: "pointer",
+            fontFamily: "var(--font-sans)",
+            display: "flex", alignItems: "center", gap: 4,
+            whiteSpace: "nowrap",
+          }}>
+            <i className={`ti ti-chevron-${verDebug ? "up" : "down"}`} />
+            {verDebug ? "Ocultar" : "Ver"} todos los miembros activos ({todosMiembros.length})
+          </button>
+        </div>
+
+        {verDebug && todosMiembros.length > 0 && (() => {
+          // Agrupo por combinación cargos+grupos para visualizar mejor
+          const todosCargos = Array.from(new Set(todosMiembros.flatMap(m => m._todosCargos))).sort();
+          const todosGrupos = Array.from(new Set(todosMiembros.flatMap(m => m._todosGrupos))).sort();
+          return (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "0.5px solid var(--border)" }}>
+              {/* Lista de cargos y grupos únicos */}
+              <div style={{ marginBottom: 12, display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-secondary)", marginBottom: 4 }}>CARGOS ACTIVOS EN EL SISTEMA ({todosCargos.length})</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {todosCargos.map(c => (
+                      <span key={c} style={{
+                        fontSize: 11, padding: "2px 8px", borderRadius: 10,
+                        background: c.toLowerCase().includes("ministerio") ? "var(--bg-success)" : "var(--surface-2)",
+                        color: c.toLowerCase().includes("ministerio") ? "var(--text-success)" : "var(--text-secondary)",
+                        border: "0.5px solid var(--border)",
+                      }}>{c}</span>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-secondary)", marginBottom: 4 }}>GRUPOS ACTIVOS EN EL SISTEMA ({todosGrupos.length})</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {todosGrupos.map(g => {
+                      const low = g.toLowerCase();
+                      const match = low.includes("oficial") || low.includes("ayudante");
+                      return (
+                        <span key={g} style={{
+                          fontSize: 11, padding: "2px 8px", borderRadius: 10,
+                          background: match ? "var(--bg-success)" : "var(--surface-2)",
+                          color: match ? "var(--text-success)" : "var(--text-secondary)",
+                          border: "0.5px solid var(--border)",
+                        }}>{g}</span>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Lista completa de miembros */}
+              <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-secondary)", marginBottom: 4 }}>TODOS LOS MIEMBROS ACTIVOS ({todosMiembros.length}) — en verde los que serían elegibles</div>
+              <div style={{ maxHeight: 400, overflowY: "auto", border: "0.5px solid var(--border)", borderRadius: 6 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                  <thead style={{ position: "sticky", top: 0, background: "var(--surface-2)" }}>
+                    <tr>
+                      <th style={{ padding: "6px 8px", textAlign: "left", borderBottom: "0.5px solid var(--border)", color: "var(--text-secondary)" }}>Miembro</th>
+                      <th style={{ padding: "6px 8px", textAlign: "left", borderBottom: "0.5px solid var(--border)", color: "var(--text-secondary)" }}>Cargos</th>
+                      <th style={{ padding: "6px 8px", textAlign: "left", borderBottom: "0.5px solid var(--border)", color: "var(--text-secondary)" }}>Grupos</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {todosMiembros.map(m => {
+                      const tieneCargoOk = m._todosCargos.some(c => c.toLowerCase().includes("ministerio"));
+                      const tieneGrupoOk = m._todosGrupos.some(g => {
+                        const low = g.toLowerCase();
+                        return low.includes("oficial") || low.includes("ayudante");
+                      });
+                      const esElegible = tieneCargoOk && tieneGrupoOk;
+                      return (
+                        <tr key={m.id} style={{ background: esElegible ? "var(--bg-success)" : "transparent", borderBottom: "0.5px solid var(--border)" }}>
+                          <td style={{ padding: "4px 8px", color: esElegible ? "var(--text-success)" : "var(--text-primary)", fontWeight: esElegible ? 500 : 400 }}>
+                            {esElegible && "✓ "}{m.apellidos}, {m.nombres}
+                          </td>
+                          <td style={{ padding: "4px 8px", color: "var(--text-secondary)" }}>{m._todosCargos.join(", ") || "—"}</td>
+                          <td style={{ padding: "4px 8px", color: "var(--text-secondary)" }}>{m._todosGrupos.join(", ") || "—"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {loading ? <Spinner /> : elegibles.length === 0 ? (
