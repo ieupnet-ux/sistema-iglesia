@@ -1583,17 +1583,28 @@ function ModuloReportes() {
       if (!todasReuniones.length) { toast("No hay reuniones en ese período", "warn"); setLoading(false); return; }
 
       // Si hay filtro por cargo o grupo, resolver IDs de miembros que cumplen
+      // Consultamos directamente a las tablas de relación (más confiable que relaciones anidadas)
       let miembrosIds = null; // null = sin filtrar
       if (filtros.cargo_id || filtros.grupo_id) {
-        miembrosIds = (miembrosFull || []).filter(m => {
-          const okCargo = !filtros.cargo_id || (m.miembro_cargos || []).some(mc => mc.activo && mc.cargo_id === filtros.cargo_id);
-          const okGrupo = !filtros.grupo_id || (m.miembro_grupos || []).some(mg => mg.activo && mg.grupo_id === filtros.grupo_id);
-          return okCargo && okGrupo;
-        }).map(m => m.id);
+        let setCargo = null, setGrupo = null;
+        if (filtros.cargo_id) {
+          const rows = await sb.query("miembro_cargos", `?cargo_id=eq.${filtros.cargo_id}&activo=eq.true&select=miembro_id`);
+          setCargo = new Set((rows || []).map(r => r.miembro_id));
+        }
+        if (filtros.grupo_id) {
+          const rows = await sb.query("miembro_grupos", `?grupo_id=eq.${filtros.grupo_id}&activo=eq.true&select=miembro_id`);
+          setGrupo = new Set((rows || []).map(r => r.miembro_id));
+        }
+        // Intersección (si están ambos filtros) o uno solo
+        let resultado = (miembrosFull || []).map(m => m.id);
+        if (setCargo) resultado = resultado.filter(id => setCargo.has(id));
+        if (setGrupo) resultado = resultado.filter(id => setGrupo.has(id));
+        miembrosIds = resultado;
         if (miembrosIds.length === 0) {
           toast("No hay miembros con los filtros aplicados", "warn");
           setLoading(false); return;
         }
+        toast(`${miembrosIds.length} miembro(s) coinciden con el filtro`, "info");
       }
 
       const reunionIds = todasReuniones.map(r => r.id).join(",");
@@ -2466,14 +2477,23 @@ function ModuloEstadisticasTareas() {
   const cargar = useCallback(async () => {
     setLoading(true);
     try {
-      // Si hay filtro por cargo o grupo, primero obtener IDs de miembros que cumplen
+      // Si hay filtro por cargo o grupo, obtener IDs de miembros que cumplen
+      // Consultamos directamente a las tablas de relación (más confiable que relaciones anidadas)
       let miembrosFiltrados = null; // null = sin filtrar
       if (filtroCargo || filtroGrupo) {
-        miembrosFiltrados = (miembrosFull || []).filter(m => {
-          const okCargo = !filtroCargo || (m.miembro_cargos || []).some(mc => mc.activo && mc.cargo_id === filtroCargo);
-          const okGrupo = !filtroGrupo || (m.miembro_grupos || []).some(mg => mg.activo && mg.grupo_id === filtroGrupo);
-          return okCargo && okGrupo;
-        }).map(m => m.id);
+        let setCargo = null, setGrupo = null;
+        if (filtroCargo) {
+          const rows = await sb.query("miembro_cargos", `?cargo_id=eq.${filtroCargo}&activo=eq.true&select=miembro_id`);
+          setCargo = new Set((rows || []).map(r => r.miembro_id));
+        }
+        if (filtroGrupo) {
+          const rows = await sb.query("miembro_grupos", `?grupo_id=eq.${filtroGrupo}&activo=eq.true&select=miembro_id`);
+          setGrupo = new Set((rows || []).map(r => r.miembro_id));
+        }
+        let resultado = (miembrosFull || []).map(m => m.id);
+        if (setCargo) resultado = resultado.filter(id => setCargo.has(id));
+        if (setGrupo) resultado = resultado.filter(id => setGrupo.has(id));
+        miembrosFiltrados = resultado;
         if (miembrosFiltrados.length === 0) {
           setDatos(null); setLoading(false); return;
         }
