@@ -3288,6 +3288,7 @@ function ModuloDiagramacion() {
   const [diagramaciones, setDiagramaciones] = useState([]);
   const [loading, setLoading] = useState(true);
   const [generando, setGenerando] = useState(false);
+  const [verElegibles, setVerElegibles] = useState(false);
   const [modo, setModo] = useState("mes"); // "mes" | "periodo"
   const [mesActivo, setMesActivo] = useState(() => {
     const d = new Date();
@@ -3332,11 +3333,15 @@ function ModuloDiagramacion() {
         sb.query("diagramacion_dominical", `${filtroMes}&select=*&order=fecha.asc`).catch(() => []),
       ]);
 
-      const filtrados = ms.filter(m => {
-        const tieneMinisterio = (m.miembro_cargos || []).some(mc => mc.activo && mc.cargos?.nombre?.toLowerCase().includes("ministerio"));
-        const esOficialOAyudante = (m.miembro_grupos || []).some(mg => mg.activo && ["oficial", "ayudante"].includes((mg.grupos?.nombre || "").toLowerCase()));
-        return tieneMinisterio && esOficialOAyudante;
-      });
+      const filtrados = ms.map(m => {
+        const cargosMinisterio = (m.miembro_cargos || [])
+          .filter(mc => mc.activo && mc.cargos?.nombre?.toLowerCase().includes("ministerio"))
+          .map(mc => mc.cargos.nombre);
+        const gruposOficialAyudante = (m.miembro_grupos || [])
+          .filter(mg => mg.activo && ["oficial", "ayudante"].includes((mg.grupos?.nombre || "").toLowerCase()))
+          .map(mg => mg.grupos.nombre);
+        return { ...m, _cargosMatch: cargosMinisterio, _gruposMatch: gruposOficialAyudante };
+      }).filter(m => m._cargosMatch.length > 0 && m._gruposMatch.length > 0);
 
       setElegibles(filtrados);
       setDiagramaciones(diag || []);
@@ -3676,10 +3681,55 @@ function ModuloDiagramacion() {
 
       {/* Info de criterios */}
       <div style={{ background: "var(--bg-accent)", border: "0.5px solid var(--border-accent)", borderRadius: 10, padding: "10px 14px", marginBottom: 20, fontSize: 12, color: "var(--text-accent)" }}>
-        <i className="ti ti-info-circle" style={{ marginRight: 6 }} />
-        Criterios: miembros con cargo <strong>"Ministerio"</strong> + grupo <strong>"Oficial"</strong> o <strong>"Ayudante"</strong>.
-        Las tareas <strong>no se repiten</strong> al mismo miembro en todo el {modo === "mes" ? "mes" : "período"} seleccionado.
-        Si el período demanda más repeticiones que miembros disponibles, se distribuyen equitativamente.
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <div>
+            <i className="ti ti-info-circle" style={{ marginRight: 6 }} />
+            Criterios: miembros con cargo que contenga <strong>"Ministerio"</strong> + grupo <strong>"Oficial"</strong> o <strong>"Ayudante"</strong>.
+            Las tareas <strong>no se repiten</strong> al mismo miembro en todo el {modo === "mes" ? "mes" : "período"} seleccionado.
+          </div>
+          {elegibles.length > 0 && (
+            <button onClick={() => setVerElegibles(v => !v)} style={{
+              background: "transparent",
+              border: "0.5px solid var(--border-accent)",
+              color: "var(--text-accent)",
+              borderRadius: 6,
+              padding: "4px 10px",
+              fontSize: 12,
+              cursor: "pointer",
+              fontFamily: "var(--font-sans)",
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              whiteSpace: "nowrap",
+            }}>
+              <i className={`ti ti-chevron-${verElegibles ? "up" : "down"}`} />
+              {verElegibles ? "Ocultar" : "Ver"} {elegibles.length} miembros elegibles
+            </button>
+          )}
+        </div>
+
+        {/* Lista expandible de elegibles con cargos y grupos */}
+        {verElegibles && elegibles.length > 0 && (
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: "0.5px solid var(--border-accent)" }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(320px, 1fr))", gap: 8 }}>
+              {elegibles.map((m, i) => (
+                <div key={m.id} style={{ background: "var(--surface-2)", borderRadius: 6, padding: "8px 10px", border: "0.5px solid var(--border)" }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)", marginBottom: 2 }}>
+                    {i + 1}. {m.apellidos}, {m.nombres}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    <span><strong>Cargo:</strong> {m._cargosMatch.join(", ")}</span>
+                    <span>·</span>
+                    <span><strong>Grupo:</strong> {m._gruposMatch.join(", ")}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop: 10, fontSize: 11, color: "var(--text-muted)", fontStyle: "italic" }}>
+              💡 Si ves cargos que no deberían estar (ej: "Ministerio Juvenil"), avisá para hacer el filtro más estricto (solo cargo "Ministerio" exacto).
+            </div>
+          </div>
+        )}
       </div>
 
       {loading ? <Spinner /> : elegibles.length === 0 ? (
