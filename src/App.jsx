@@ -3368,33 +3368,49 @@ function ModuloDiagramacion() {
     return new Date(y, m - 1, 1).toLocaleDateString("es-ES", { month: "long", year: "numeric" });
   };
 
-  // Algoritmo de asignación por mes:
-  //   - No repite la misma tarea al mismo miembro en el mismo mes
-  //   - Equilibra la carga de trabajo
+  // Algoritmo de asignación para todo el rango (mes o período):
+  //   - No repite la misma tarea al mismo miembro en TODO el período
+  //   - Si no hay candidatos sin repetir, elige al que menos veces la hizo
+  //   - Equilibra la carga total entre todos los miembros
   //   - No da dos tareas al mismo miembro el mismo domingo
-  const asignarMes = (mes) => {
-    const domingos = domingosDelMes(mes);
+  const asignarRango = (meses) => {
     const asignaciones = [];
-    const historialMes = {};
-    elegibles.forEach(m => { historialMes[m.id] = new Set(); });
+    // Historial compartido entre todos los meses del rango:
+    //   miembro_id -> { tarea: cantidadDeVecesAsignada }
+    const historial = {};
+    elegibles.forEach(m => {
+      historial[m.id] = {};
+      TAREAS_DOMINICALES.forEach(t => { historial[m.id][t] = 0; });
+    });
 
-    for (const fecha of domingos) {
-      const ocupadosHoy = new Set();
-      for (const tarea of TAREAS_DOMINICALES) {
-        const candidatos = elegibles.filter(m => !historialMes[m.id].has(tarea) && !ocupadosHoy.has(m.id));
-        if (candidatos.length === 0) {
-          const libres = elegibles.filter(m => !ocupadosHoy.has(m.id));
-          if (libres.length === 0) continue;
-          libres.sort((a, b) => historialMes[a.id].size - historialMes[b.id].size);
-          const elegido = libres[0];
+    const totalTareas = (mid) => TAREAS_DOMINICALES.reduce((s, t) => s + historial[mid][t], 0);
+
+    for (const mes of meses) {
+      const domingos = domingosDelMes(mes);
+      for (const fecha of domingos) {
+        const ocupadosHoy = new Set();
+        for (const tarea of TAREAS_DOMINICALES) {
+          // Preferidos: nunca hicieron esta tarea en el período y están libres hoy
+          const sinRepetir = elegibles.filter(m => historial[m.id][tarea] === 0 && !ocupadosHoy.has(m.id));
+          let elegido;
+          if (sinRepetir.length > 0) {
+            // Entre los que nunca la hicieron, elegir el que menos tareas totales tiene
+            sinRepetir.sort((a, b) => totalTareas(a.id) - totalTareas(b.id));
+            elegido = sinRepetir[0];
+          } else {
+            // Fallback: no hay nadie sin repetir — elegir al que menos veces hizo esa tarea
+            const libres = elegibles.filter(m => !ocupadosHoy.has(m.id));
+            if (libres.length === 0) continue;
+            libres.sort((a, b) => {
+              if (historial[a.id][tarea] !== historial[b.id][tarea]) {
+                return historial[a.id][tarea] - historial[b.id][tarea];
+              }
+              return totalTareas(a.id) - totalTareas(b.id);
+            });
+            elegido = libres[0];
+          }
           asignaciones.push({ mes, fecha, tarea, miembro_id: elegido.id });
-          historialMes[elegido.id].add(tarea);
-          ocupadosHoy.add(elegido.id);
-        } else {
-          candidatos.sort((a, b) => historialMes[a.id].size - historialMes[b.id].size);
-          const elegido = candidatos[0];
-          asignaciones.push({ mes, fecha, tarea, miembro_id: elegido.id });
-          historialMes[elegido.id].add(tarea);
+          historial[elegido.id][tarea]++;
           ocupadosHoy.add(elegido.id);
         }
       }
@@ -3415,7 +3431,20 @@ function ModuloDiagramacion() {
     const descripcion = modo === "mes"
       ? mesActivo
       : `${meses.length} mes(es): ${meses[0]} → ${meses[meses.length - 1]}`;
-    if (!window.confirm(`¿Generar diagramación para ${descripcion}? Esto reemplazará lo existente en ese rango.`)) return;
+
+    // Advertencia si el período demanda más repeticiones que miembros disponibles
+    const totalDomingosRango = meses.reduce((s, m) => s + domingosDelMes(m).length, 0);
+    if (totalDomingosRango > elegibles.length) {
+      const confirmaRepeticion = window.confirm(
+        `⚠️ Atención: hay ${totalDomingosRango} domingos en el período y solo ${elegibles.length} miembros elegibles.\n\n` +
+        `No será posible evitar que algunos miembros repitan tareas en el período (habrá al menos ${totalDomingosRango - elegibles.length} repeticiones por tarea).\n\n` +
+        `El sistema minimizará las repeticiones distribuyéndolas lo más equitativamente posible.\n\n` +
+        `¿Continuar?`
+      );
+      if (!confirmaRepeticion) return;
+    } else if (!window.confirm(`¿Generar diagramación para ${descripcion}? Esto reemplazará lo existente en ese rango.`)) {
+      return;
+    }
 
     setGenerando(true);
     try {
@@ -3426,14 +3455,9 @@ function ModuloDiagramacion() {
         }
       }
 
-      // Generar asignaciones para cada mes (historial se resetea mes a mes)
-      let totalAsignaciones = [];
-      let totalDomingos = 0;
-      for (const mes of meses) {
-        const asig = asignarMes(mes);
-        totalAsignaciones = totalAsignaciones.concat(asig);
-        totalDomingos += domingosDelMes(mes).length;
-      }
+      // Generar asignaciones para todo el rango con historial compartido
+      const totalAsignaciones = asignarRango(meses);
+      const totalDomingos = meses.reduce((s, m) => s + domingosDelMes(m).length, 0);
 
       // Insertar en lotes de 100 para evitar timeouts
       if (totalAsignaciones.length > 0) {
@@ -3556,8 +3580,17 @@ function ModuloDiagramacion() {
   // Resumen por miembro en el rango visible
   const resumenPorMiembro = elegibles.map(m => {
     const asignaciones = diagramaciones.filter(d => d.miembro_id === m.id);
-    const tareas = asignaciones.map(a => a.tarea);
-    return { miembro: m, total: asignaciones.length, tareas };
+    // Contar cuántas veces aparece cada tarea
+    const conteoTareas = {};
+    asignaciones.forEach(a => {
+      conteoTareas[a.tarea] = (conteoTareas[a.tarea] || 0) + 1;
+    });
+    // Formato: "Coordina (x2) · Predica · Devocional"
+    const tareasFormateadas = Object.entries(conteoTareas).map(([t, n]) =>
+      n > 1 ? `${t} (x${n})` : t
+    );
+    const tieneRepetidas = Object.values(conteoTareas).some(n => n > 1);
+    return { miembro: m, total: asignaciones.length, tareas: tareasFormateadas, tieneRepetidas };
   }).sort((a, b) => b.total - a.total);
 
   return (
@@ -3644,7 +3677,9 @@ function ModuloDiagramacion() {
       {/* Info de criterios */}
       <div style={{ background: "var(--bg-accent)", border: "0.5px solid var(--border-accent)", borderRadius: 10, padding: "10px 14px", marginBottom: 20, fontSize: 12, color: "var(--text-accent)" }}>
         <i className="ti ti-info-circle" style={{ marginRight: 6 }} />
-        Criterios: miembros con cargo <strong>"Ministerio"</strong> + grupo <strong>"Oficial"</strong> o <strong>"Ayudante"</strong>. Las tareas no se repiten al mismo miembro en el mismo mes (el historial se reinicia cada mes).
+        Criterios: miembros con cargo <strong>"Ministerio"</strong> + grupo <strong>"Oficial"</strong> o <strong>"Ayudante"</strong>.
+        Las tareas <strong>no se repiten</strong> al mismo miembro en todo el {modo === "mes" ? "mes" : "período"} seleccionado.
+        Si el período demanda más repeticiones que miembros disponibles, se distribuyen equitativamente.
       </div>
 
       {loading ? <Spinner /> : elegibles.length === 0 ? (
@@ -3722,11 +3757,14 @@ function ModuloDiagramacion() {
                 Resumen por miembro — {modo === "mes" ? nombreDelMes(mesActivo) : `${mesesVisibles.length} mes(es)`}
               </div>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(280px, 1fr))", gap: 10 }}>
-                {resumenPorMiembro.map(({ miembro, total, tareas }) => (
-                  <div key={miembro.id} style={{ padding: "10px 12px", background: "var(--surface-1)", borderRadius: 8, borderLeft: `3px solid ${total === 0 ? "var(--border-muted)" : "var(--border-success)"}` }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                {resumenPorMiembro.map(({ miembro, total, tareas, tieneRepetidas }) => (
+                  <div key={miembro.id} style={{ padding: "10px 12px", background: "var(--surface-1)", borderRadius: 8, borderLeft: `3px solid ${total === 0 ? "var(--border-muted)" : tieneRepetidas ? "var(--border-warning)" : "var(--border-success)"}` }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, gap: 6 }}>
                       <span style={{ fontSize: 13, fontWeight: 500 }}>{miembro.apellidos}, {miembro.nombres}</span>
-                      <Badge label={`${total} tarea(s)`} role={total === 0 ? "accent" : "success"} />
+                      <div style={{ display: "flex", gap: 4 }}>
+                        {tieneRepetidas && <Badge label="repite" role="warning" />}
+                        <Badge label={`${total} tarea(s)`} role={total === 0 ? "accent" : "success"} />
+                      </div>
                     </div>
                     {tareas.length > 0 && (
                       <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
