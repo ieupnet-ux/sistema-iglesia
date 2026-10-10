@@ -1662,7 +1662,15 @@ function ModuloReportes() {
       });
       const barData = Object.values(porTipo).map(d => ({ ...d, pct: d.total ? Math.round(d.presente / d.total * 100) : 0 }));
 
-      setDatos({ totales, pieData, lineData, barData, totalReuniones: reuniones.length });
+      // Nombres descriptivos del filtro aplicado
+      const filtroInfo = {
+        miembrosFiltrados: miembrosIds ? miembrosIds.length : null,
+        nombreCargo: filtros.cargo_id ? cargosList.find(c => c.id === filtros.cargo_id)?.nombre : null,
+        nombreGrupo: filtros.grupo_id ? gruposList.find(g => g.id === filtros.grupo_id)?.nombre : null,
+        nombreTipo: filtros.tipo_reunion_id ? tiposReunion.find(t => t.id === filtros.tipo_reunion_id)?.nombre : null,
+        nombreTemplo: filtros.templo_id ? templos.find(t => t.id === filtros.templo_id)?.nombre : null,
+      };
+      setDatos({ totales, pieData, lineData, barData, totalReuniones: reuniones.length, filtroInfo });
     } catch (e) { toast(e.message, "error"); }
     finally { setLoading(false); }
   };
@@ -1714,6 +1722,23 @@ function ModuloReportes() {
 
       {datos && !loading && (
         <div>
+          {/* Banner con información del filtro aplicado */}
+          {datos.filtroInfo && (datos.filtroInfo.nombreCargo || datos.filtroInfo.nombreGrupo || datos.filtroInfo.nombreTipo || datos.filtroInfo.nombreTemplo) && (
+            <div style={{ background: "var(--bg-accent)", border: "0.5px solid var(--border-accent)", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "var(--text-accent)" }}>
+              <i className="ti ti-filter" style={{ marginRight: 6 }} />
+              <strong>Filtros aplicados:</strong>{" "}
+              {datos.filtroInfo.nombreTipo && <span>Tipo = <strong>{datos.filtroInfo.nombreTipo}</strong> · </span>}
+              {datos.filtroInfo.nombreTemplo && <span>Templo = <strong>{datos.filtroInfo.nombreTemplo}</strong> · </span>}
+              {datos.filtroInfo.nombreCargo && <span>Cargo = <strong>{datos.filtroInfo.nombreCargo}</strong> · </span>}
+              {datos.filtroInfo.nombreGrupo && <span>Grupo = <strong>{datos.filtroInfo.nombreGrupo}</strong> · </span>}
+              {datos.filtroInfo.miembrosFiltrados !== null && (
+                <span>
+                  <strong>{datos.filtroInfo.miembrosFiltrados}</strong> miembro(s) coinciden
+                </span>
+              )}
+            </div>
+          )}
+
           {/* Tarjetas resumen */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 28 }}>
             {[
