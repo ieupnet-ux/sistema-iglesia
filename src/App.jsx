@@ -753,6 +753,7 @@ function ModuloMiembros() {
           {filtrados.map(m => {
             const cumple = isBirthdayToday(m.fecha_nacimiento);
             const cargosActivos = (m.miembro_cargos || []).filter(mc => mc.activo).map(mc => mc.cargos?.nombre).filter(Boolean);
+            const gruposActivos = (m.miembro_grupos || []).filter(mg => mg.activo).map(mg => mg.grupos?.nombre).filter(Boolean);
             return (
               <div key={m.id} style={{ background: cumple ? "var(--bg-warning)" : "var(--surface-2)", border: `0.5px solid ${cumple ? "var(--border-warning)" : "var(--border)"}`, borderRadius: 12, padding: 14 }}>
                 <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
@@ -763,6 +764,7 @@ function ModuloMiembros() {
                     <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
                       <Badge label={m.estado} />
                       {cargosActivos.map(c => <Badge key={c} label={c} role="accent" />)}
+                      {gruposActivos.map(g => <Badge key={g} label={g} role="pro" />)}
                     </div>
                     {m.fecha_nacimiento && (
                       <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
@@ -788,8 +790,8 @@ function ModuloMiembros() {
           <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
             <thead>
               <tr style={{ background: "var(--surface-1)" }}>
-                {["", "Nombre", "Templo", "Cargos", "Estado", "Cumpleaños", "Acciones"].map((h, i) => (
-                  <th key={i} style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--text-secondary)", textAlign: i === 6 ? "right" : "left", borderBottom: "0.5px solid var(--border)", width: [48, 220, 130, 200, 90, 110, 110][i] }}>{h}</th>
+                {["", "Nombre", "Templo", "Cargos", "Grupos", "Estado", "Cumpleaños", "Acciones"].map((h, i) => (
+                  <th key={i} style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--text-secondary)", textAlign: i === 7 ? "right" : "left", borderBottom: "0.5px solid var(--border)", width: [48, 200, 120, 170, 170, 90, 110, 110][i] }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -797,6 +799,7 @@ function ModuloMiembros() {
               {filtrados.map(m => {
                 const cumple = isBirthdayToday(m.fecha_nacimiento);
                 const cargosActivos = (m.miembro_cargos || []).filter(mc => mc.activo).map(mc => mc.cargos?.nombre).filter(Boolean);
+                const gruposActivos = (m.miembro_grupos || []).filter(mg => mg.activo).map(mg => mg.grupos?.nombre).filter(Boolean);
                 return (
                   <tr key={m.id} style={{ borderBottom: "0.5px solid var(--border)", background: cumple ? "var(--bg-warning)" : "transparent" }}
                     onMouseEnter={e => { if (!cumple) e.currentTarget.style.background = "var(--surface-1)"; }}
@@ -814,6 +817,13 @@ function ModuloMiembros() {
                         {cargosActivos.slice(0, 2).map(c => <Badge key={c} label={c} role="accent" />)}
                         {cargosActivos.length > 2 && <Badge label={`+${cargosActivos.length - 2}`} role="accent" />}
                         {cargosActivos.length === 0 && <span style={{ fontSize: 12, color: "var(--text-muted)" }}>—</span>}
+                      </div>
+                    </td>
+                    <td style={{ padding: "8px 12px" }}>
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        {gruposActivos.slice(0, 2).map(g => <Badge key={g} label={g} role="pro" />)}
+                        {gruposActivos.length > 2 && <Badge label={`+${gruposActivos.length - 2}`} role="pro" />}
+                        {gruposActivos.length === 0 && <span style={{ fontSize: 12, color: "var(--text-muted)" }}>—</span>}
                       </div>
                     </td>
                     <td style={{ padding: "8px 12px" }}><Badge label={m.estado} /></td>
