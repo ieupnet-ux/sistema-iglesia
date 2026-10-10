@@ -596,6 +596,8 @@ function ModuloMiembros() {
   const [filtroGrupo, setFiltroGrupo] = useState("");
   const [modal, setModal] = useState(null); // null | {mode:"new"|"edit"|"view", data}
   const [exportando, setExportando] = useState(false);
+  const [ordenCol, setOrdenCol] = useState("apellidos");
+  const [ordenDir, setOrdenDir] = useState("asc");
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -621,7 +623,48 @@ function ModuloMiembros() {
     const matchCargo = !filtroCargo || m.miembro_cargos?.some(mc => mc.activo && mc.cargos?.id === filtroCargo);
     const matchGrupo = !filtroGrupo || m.miembro_grupos?.some(mg => mg.activo && mg.grupos?.id === filtroGrupo);
     return matchSearch && matchEstado && matchTemplo && matchCargo && matchGrupo;
+  }).sort((a, b) => {
+    const dir = ordenDir === "asc" ? 1 : -1;
+    if (ordenCol === "apellidos") {
+      return dir * `${a.apellidos || ""} ${a.nombres || ""}`.localeCompare(`${b.apellidos || ""} ${b.nombres || ""}`);
+    }
+    if (ordenCol === "templo") {
+      return dir * (a.templos?.nombre || "").localeCompare(b.templos?.nombre || "");
+    }
+    if (ordenCol === "cargos") {
+      const cA = (a.miembro_cargos || []).filter(mc => mc.activo).map(mc => mc.cargos?.nombre).filter(Boolean).join(", ");
+      const cB = (b.miembro_cargos || []).filter(mc => mc.activo).map(mc => mc.cargos?.nombre).filter(Boolean).join(", ");
+      return dir * cA.localeCompare(cB);
+    }
+    if (ordenCol === "grupos") {
+      const gA = (a.miembro_grupos || []).filter(mg => mg.activo).map(mg => mg.grupos?.nombre).filter(Boolean).join(", ");
+      const gB = (b.miembro_grupos || []).filter(mg => mg.activo).map(mg => mg.grupos?.nombre).filter(Boolean).join(", ");
+      return dir * gA.localeCompare(gB);
+    }
+    if (ordenCol === "estado") {
+      const ord = { activo: 1, visita: 2, inactivo: 3, retirado: 4, fallecido: 5 };
+      return dir * ((ord[a.estado] || 99) - (ord[b.estado] || 99));
+    }
+    if (ordenCol === "cumple") {
+      // Ordenar por mes y día (ignorando año), los sin fecha al final
+      if (!a.fecha_nacimiento && !b.fecha_nacimiento) return 0;
+      if (!a.fecha_nacimiento) return 1;
+      if (!b.fecha_nacimiento) return -1;
+      const [, mA, dA] = a.fecha_nacimiento.split("-");
+      const [, mB, dB] = b.fecha_nacimiento.split("-");
+      return dir * (`${mA}-${dA}`.localeCompare(`${mB}-${dB}`));
+    }
+    return 0;
   });
+
+  const toggleOrden = (col) => {
+    if (ordenCol === col) {
+      setOrdenDir(ordenDir === "asc" ? "desc" : "asc");
+    } else {
+      setOrdenCol(col);
+      setOrdenDir("asc");
+    }
+  };
 
   // Versículos de bendición para cumpleaños (rotan según el día del año)
   const MENSAJES_CUMPLEANOS = [
@@ -790,8 +833,29 @@ function ModuloMiembros() {
           <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
             <thead>
               <tr style={{ background: "var(--surface-1)" }}>
-                {["", "Nombre", "Templo", "Cargos", "Grupos", "Estado", "Cumpleaños", "Acciones"].map((h, i) => (
-                  <th key={i} style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--text-secondary)", textAlign: i === 7 ? "right" : "left", borderBottom: "0.5px solid var(--border)", width: [48, 200, 120, 170, 170, 90, 110, 110][i] }}>{h}</th>
+                {[
+                  { label: "", col: null },
+                  { label: "Nombre", col: "apellidos" },
+                  { label: "Templo", col: "templo" },
+                  { label: "Cargos", col: "cargos" },
+                  { label: "Grupos", col: "grupos" },
+                  { label: "Estado", col: "estado" },
+                  { label: "Cumpleaños", col: "cumple" },
+                  { label: "Acciones", col: null },
+                ].map((h, i) => (
+                  <th key={i}
+                    onClick={h.col ? () => toggleOrden(h.col) : undefined}
+                    style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--text-secondary)", textAlign: i === 7 ? "right" : "left", borderBottom: "0.5px solid var(--border)", width: [48, 200, 120, 170, 170, 90, 110, 110][i], cursor: h.col ? "pointer" : "default", userSelect: "none" }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      {h.label}
+                      {h.col && ordenCol === h.col && (
+                        <i className={`ti ti-${ordenDir === "asc" ? "chevron-up" : "chevron-down"}`} style={{ fontSize: 14, color: "var(--text-accent)" }} aria-hidden />
+                      )}
+                      {h.col && ordenCol !== h.col && (
+                        <i className="ti ti-arrows-sort" style={{ fontSize: 12, color: "var(--text-muted)", opacity: 0.4 }} aria-hidden />
+                      )}
+                    </span>
+                  </th>
                 ))}
               </tr>
             </thead>
